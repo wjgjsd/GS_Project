@@ -271,6 +271,10 @@ namespace GaussianSplatting.Runtime
         GraphicsBuffer m_GpuEditPosMouseDown; // position state at start of operation
         GraphicsBuffer m_GpuEditOtherMouseDown; // rotation/scale state at start of operation
 
+        GraphicsBuffer m_GpuDeltaIndices;//변화 인덱스
+        GraphicsBuffer m_GpuPosDeltaData;//변화 위치 데이터
+        const int kMaxDeltaUpdates = 1000000; // 한 프레임에 최대 100만개까지 업데이트 허용 (조절 가능)
+
         GpuSorting m_Sorter;
         GpuSorting.Args m_SorterArgs;
 
@@ -356,6 +360,7 @@ namespace GaussianSplatting.Runtime
             ScaleSelection,
             ExportData,
             CopySplats,
+            ApplyDelta,
         }
 
         public bool HasValidAsset =>
@@ -418,6 +423,9 @@ namespace GaussianSplatting.Runtime
             });
 
             InitSortBuffers(splatCount);
+
+            m_GpuDeltaIndices = new GraphicsBuffer(GraphicsBuffer.Target.Structured, kMaxDeltaUpdates, 4);
+            m_GpuPosDeltaData = new GraphicsBuffer(GraphicsBuffer.Target.Structured, kMaxDeltaUpdates, 12);
         }
 
         void InitSortBuffers(int count)
@@ -574,6 +582,9 @@ namespace GaussianSplatting.Runtime
             DestroyImmediate(m_MatComposite);
             DestroyImmediate(m_MatDebugPoints);
             DestroyImmediate(m_MatDebugBoxes);
+
+            DisposeBuffer(ref m_GpuDeltaIndices);
+            DisposeBuffer(ref m_GpuPosDeltaData);
         }
 
         internal void CalcViewData(CommandBuffer cmb, Camera cam)
@@ -1078,6 +1089,39 @@ namespace GaussianSplatting.Runtime
         {
             m_CSSplatUtilities.GetKernelThreadGroupSizes((int)kernel, out uint gsX, out _, out _);
             cmb.DispatchCompute(m_CSSplatUtilities, (int)kernel, (int)((count + gsX - 1)/gsX), 1, 1);
+            Graphics.ExecuteCommandBuffer(cmb);
+        }
+
+        public void ApplyDelta(DeltaFrame frame)
+        {
+            if (!HasValidRenderSetup || frame.targetIndices == null || frame.targetIndices.Length == 0)
+                return;
+
+            // 1. 변화가 생긴 인덱스 목록을 GPU로 전송
+            m_GpuDeltaIndices.SetData(frame.targetIndices);
+
+            // 2. 위치 변화량 데이터를 GPU로 전송
+            if (frame.posDeltaData != null && frame.posDeltaData.Length > 0)
+            {
+                m_GpuPosDeltaData.SetData(frame.posDeltaData);
+            }
+
+            // 3. Compute Shader(SplatUtilities.compute)를 호출하여 
+            // 메인 버퍼(m_GpuPosData)의 해당 인덱스 값을 업데이트
+            // Compute Shader 실행 준비
+            using var cmb = new CommandBuffer { name = "ApplySplatDelta" };
+            int kernelIdx = (int)KernelIndices.ApplyDelta;
+
+            // 3. 버퍼 바인딩
+            cmb.SetComputeBufferParam(m_CSSplatUtilities, kernelIdx, "_DeltaIndices", m_GpuDeltaIndices);
+            cmb.SetComputeBufferParam(m_CSSplatUtilities, kernelIdx, "_PosDeltaData", m_GpuPosDeltaData);
+            cmb.SetComputeBufferParam(m_CSSplatUtilities, kernelIdx, Props.SplatPos, m_GpuPosData);
+            cmb.SetComputeIntParam(m_CSSplatUtilities, Props.SplatCount, frame.targetIndices.Length);
+
+            // 4. Dispatch (GPU 병렬 연산 시작)
+            m_CSSplatUtilities.GetKernelThreadGroupSizes(kernelIdx, out uint gsX, out _, out _);
+            cmb.DispatchCompute(m_CSSplatUtilities, kernelIdx, (frame.targetIndices.Length + (int)gsX - 1) / (int)gsX, 1, 1);
+            
             Graphics.ExecuteCommandBuffer(cmb);
         }
 

@@ -243,5 +243,33 @@ namespace GaussianSplatting.Runtime
             public Vector3 axisX, axisY, axisZ;
             public float fov;
         }
+
+        [Serializable]
+        public struct DeltaFrame
+        {
+            public int frameIndex;      // 시퀀스 내 프레임 번호
+            public bool isKeyframe;     // 전체 데이터를 갱신해야 하는 키프레임 여부
+            
+            // 변화가 발생한 가우시안들의 인덱스 목록
+            // 모든 스플랫이 변하지 않으므로, 수정이 필요한 번호만 추적합니다.
+            public uint[] targetIndices; 
+
+            // 실제 변화량 데이터 (바이너리 형태)
+            // 위치 변화량, 회전 변화량 등을 포맷에 맞춰 직렬화하여 저장합니다.
+            public byte[] posDeltaData;   
+            public byte[] otherDeltaData; 
+            public byte[] colorDeltaData; 
+        }
+        
+        // GaussianSplatAsset.cs 내부에 추가
+        [SerializeField] List<DeltaFrame> m_StreamingSequence = new List<DeltaFrame>();
+
+        public List<DeltaFrame> streamingSequence => m_StreamingSequence;
+
+        // 에셋 초기화 시 시퀀스를 설정하기 위한 메서드
+        public void SetStreamingSequence(List<DeltaFrame> sequence)
+        {
+            m_StreamingSequence = sequence;
+        }
     }
 }
