@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT
 #define GROUP_SIZE 1024
 
+// 1. 커널 등록 (파일 최상단 #pragma kernel 모음 뒤에 추가)
 #pragma kernel CSSetIndices
 #pragma kernel CSCalcDistances
 #pragma kernel CSCalcViewData
@@ -16,6 +17,7 @@
 #pragma kernel CSScaleSelection
 #pragma kernel CSExportData
 #pragma kernel CSCopySplats
+#pragma kernel CSApplyDelta
 
 // DeviceRadixSort
 #pragma multi_compile __ KEY_UINT KEY_INT KEY_FLOAT
@@ -756,32 +758,29 @@ void CSCopySplats (uint3 id : SV_DispatchThreadID)
         _CopyDstEditDeleted.InterlockedOr(dstWordIdx * 4, 1u << dstBitIdx);
     }
 
-    // 1. 커널 등록 (파일 최상단 #pragma kernel 모음 뒤에 추가)
-    #pragma kernel CSApplyDelta
+}
+// 2. 버퍼 정의 (기존 텍스처/버퍼 정의 근처에 추가)
+StructuredBuffer<uint> _DeltaIndices;
+StructuredBuffer<float3> _PosDeltaData;
 
-    // 2. 버퍼 정의 (기존 텍스처/버퍼 정의 근처에 추가)
-    StructuredBuffer<uint> _DeltaIndices;
-    StructuredBuffer<float3> _PosDeltaData;
-
-    // 3. 로직 구현 (파일 하단에 추가)
-    [numthreads(GROUP_SIZE, 1, 1)]
-    void CSApplyDelta (uint3 id : SV_DispatchThreadID)
-    {
-        uint deltaIdx = id.x;
+// 3. 로직 구현 (파일 하단에 추가)
+[numthreads(GROUP_SIZE, 1, 1)]
+    void CSApplyDelta(uint3 id : SV_DispatchThreadID)
+{
+    uint deltaIdx = id.x;
         // _SplatCount를 여기서 '전달된 델타의 개수' 용도로 재사용하거나 별도 변수 설정
-        if (deltaIdx >= _SplatCount) 
-            return;
+    if (deltaIdx >= _SplatCount) 
+        return;
 
-        uint targetSplatIdx = _DeltaIndices[deltaIdx];
-        uint posStride = 12; // float3
+    uint targetSplatIdx = _DeltaIndices[deltaIdx];
+    uint posStride = 12; // float3
 
         // 메인 위치 버퍼(_SplatPos)에서 기존 값 읽기
-        float3 currentPos = asfloat(_SplatPos.Load3(targetSplatIdx * posStride));
+    float3 currentPos = asfloat(_SplatPos.Load3(targetSplatIdx * posStride));
         
         // 변화량 더하기
-        currentPos += _PosDeltaData[deltaIdx];
+    currentPos += _PosDeltaData[deltaIdx];
 
         // 결과 저장
-        _SplatPos.Store3(targetSplatIdx * posStride, asuint(currentPos));
-    }
+    _SplatPos.Store3(targetSplatIdx * posStride, asuint(currentPos));
 }

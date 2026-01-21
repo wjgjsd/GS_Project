@@ -1092,7 +1092,7 @@ namespace GaussianSplatting.Runtime
             Graphics.ExecuteCommandBuffer(cmb);
         }
 
-        public void ApplyDelta(DeltaFrame frame)
+        public void ApplyDelta(GaussianSplatAsset.DeltaFrame frame)
         {
             if (!HasValidRenderSetup || frame.targetIndices == null || frame.targetIndices.Length == 0)
                 return;
