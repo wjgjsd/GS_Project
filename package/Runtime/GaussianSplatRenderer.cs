@@ -1092,7 +1092,7 @@ namespace GaussianSplatting.Runtime
             Graphics.ExecuteCommandBuffer(cmb);
         }
 
-        public void ApplyDelta(GaussianSplatAsset.DeltaFrame frame)
+        public void ApplyDelta(DeltaFrame frame)
         {
             if (!HasValidRenderSetup || frame.targetIndices == null || frame.targetIndices.Length == 0)
                 return;
@@ -1111,8 +1111,7 @@ namespace GaussianSplatting.Runtime
             // Compute Shader 실행 준비
             using var cmb = new CommandBuffer { name = "ApplySplatDelta" };
             int kernelIdx = (int)KernelIndices.ApplyDelta;
-
-            // 3. 버퍼 바인딩
+            
             cmb.SetComputeBufferParam(m_CSSplatUtilities, kernelIdx, "_DeltaIndices", m_GpuDeltaIndices);
             cmb.SetComputeBufferParam(m_CSSplatUtilities, kernelIdx, "_PosDeltaData", m_GpuPosDeltaData);
             cmb.SetComputeBufferParam(m_CSSplatUtilities, kernelIdx, Props.SplatPos, m_GpuPosData);
