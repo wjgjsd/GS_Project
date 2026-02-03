@@ -24,11 +24,9 @@ namespace GaussianSplatting.Editor.Utils
 
         static void ReadHeaderImpl(string filePath, out int vertexCount, out int vertexStride, out List<(string, ElementType)> attrs, FileStream fs)
         {
-            // C# arrays and NativeArrays make it hard to have a "byte" array larger than 2GB :/
             if (fs.Length >= 2 * 1024 * 1024 * 1024L)
                 throw new IOException($"PLY {filePath} read error: currently files larger than 2GB are not supported");
 
-            // read header
             vertexCount = 0;
             vertexStride = 0;
             attrs = new List<(string, ElementType)>();
@@ -46,11 +44,13 @@ namespace GaussianSplatting.Editor.Utils
                     vertexCount = int.Parse(tokens[2]);
                 if (tokens.Length == 3 && tokens[0] == "property")
                 {
+                    // 수정 포인트 1: QUEEN의 'int' 타입을 처리할 수 있도록 확장
                     ElementType type = tokens[1] switch
                     {
                         "float" => ElementType.Float,
                         "double" => ElementType.Double,
                         "uchar" => ElementType.UChar,
+                        "int" => ElementType.Int, // QUEEN의 vertex_id 대응
                         _ => ElementType.None
                     };
                     vertexStride += TypeToSize(type);
@@ -80,7 +80,8 @@ namespace GaussianSplatting.Editor.Utils
             None,
             Float,
             Double,
-            UChar
+            UChar,
+            Int // 수정 포인트 2: Int 추가
         }
 
         public static int TypeToSize(ElementType t)
@@ -91,6 +92,7 @@ namespace GaussianSplatting.Editor.Utils
                 ElementType.Float => 4,
                 ElementType.Double => 8,
                 ElementType.UChar => 1,
+                ElementType.Int => 4, // 수정 포인트 3: int 사이즈 4바이트 지정
                 _ => throw new ArgumentOutOfRangeException(nameof(t), t, null)
             };
         }
@@ -105,7 +107,6 @@ namespace GaussianSplatting.Editor.Utils
                     break;
                 byteBuffer.Add((byte)b);
             }
-            // if line had CRLF line endings, remove the CR part
             if (byteBuffer.Count > 0 && byteBuffer.Last() == '\r')
                 byteBuffer.RemoveAt(byteBuffer.Count-1);
             return Encoding.UTF8.GetString(byteBuffer.ToArray());
