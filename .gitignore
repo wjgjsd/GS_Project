@@ -15,6 +15,7 @@
 /Temp/*
 /UserSettings/*
 /obj/*
+*.npz
 
 /projects/**/Assets/GaussianAssets/*
 /projects/**/Assets/GaussianAssets.meta
