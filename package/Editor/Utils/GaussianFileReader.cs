@@ -23,6 +23,7 @@ namespace GaussianSplatting.Editor.Utils
         public float opacity;
         public Vector3 scale;
         public Quaternion rot;
+        public int vertexId;
     }
 
     [BurstCompile]
@@ -151,9 +152,10 @@ namespace GaussianSplatting.Editor.Utils
                 "rot_0",
                 "rot_1",
                 "rot_2",
-                "rot_3",                
+                "rot_3",
+                "vertex_id"                
             };
-            Assert.AreEqual(UnsafeUtility.SizeOf<InputSplatData>() / 4, splatAttributes.Length);
+            Assert.AreEqual(splatAttributes.Length, UnsafeUtility.SizeOf<InputSplatData>() / 4);
             NativeArray<int> srcOffsets = new NativeArray<int>(splatAttributes.Length, Allocator.Temp);
             for (int ai = 0; ai < splatAttributes.Length; ai++)
             {

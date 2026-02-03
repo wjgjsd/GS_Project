@@ -27,6 +27,7 @@ namespace GaussianSplatting.Runtime
         public Vector3 boundsMin => m_BoundsMin;
         public Vector3 boundsMax => m_BoundsMax;
         public Hash128 dataHash => m_DataHash;
+        public GraphicsBufferHandle vertexIds; // ID를 담을 공간
 
         // Match VECTOR_FMT_* in HLSL
         public enum VectorFormat
@@ -216,6 +217,19 @@ namespace GaussianSplatting.Runtime
         [SerializeField] TextAsset m_ChunkData;
 
         [SerializeField] CameraInfo[] m_Cameras;
+        [SerializeField] TextAsset m_VertexIdData; // 실제 ID가 저장된 바이너리 파일 참조
+        public TextAsset vertexIdData => m_VertexIdData;
+
+        // 2. SetAssetFiles 함수 수정 (ID 파일을 인자로 받도록)
+        public void SetAssetFiles(TextAsset dataChunk, TextAsset dataPos, TextAsset dataOther, TextAsset dataColor, TextAsset dataSh, TextAsset dataIds)
+        {
+            m_ChunkData = dataChunk;
+            m_PosData = dataPos;
+            m_OtherData = dataOther;
+            m_ColorData = dataColor;
+            m_SHData = dataSh;
+            m_VertexIdData = dataIds; // 추가
+        }
 
         public VectorFormat posFormat => m_PosFormat;
         public VectorFormat scaleFormat => m_ScaleFormat;

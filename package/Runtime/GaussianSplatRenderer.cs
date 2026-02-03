@@ -1130,9 +1130,18 @@ namespace GaussianSplatting.Runtime
             string path = Path.Combine(Application.dataPath, "Deltas", $"frame_{frameNumber:D3}.delta");
             if (File.Exists(path))
             {
-                // 파일 크기와 버퍼 크기가 같으므로 직접 로드 가능
-                // 만약 여기서 에러가 나면 100% 개수가 안 맞는 것이니 인스펙터를 확인해야 함
-                m_GpuIncomingDeltaBuffer.SetData(File.ReadAllBytes(path));
+                // 1. 파일에서 바이트 데이터를 읽어옴
+                byte[] fileBytes = File.ReadAllBytes(path);
+                
+                // 2. 버퍼의 전체 바이트 크기 계산 (가우시안 개수 * 32바이트)
+                int bufferByteSize = m_GpuIncomingDeltaBuffer.count * 32;
+
+                // 3. 파일 크기가 버퍼보다 크면 버퍼 크기만큼만 사용 (Overflow 방지)
+                int safeByteSize = Math.Min(fileBytes.Length, bufferByteSize);
+
+                // 4. [수정] 데이터를 버퍼 크기에 맞춰서 안전하게 전달
+                // SetData에 복사할 바이트 크기를 명시합니다.
+                m_GpuIncomingDeltaBuffer.SetData(fileBytes, 0, 0, safeByteSize);
 
                 int kernel = m_CSSplatUtilities.FindKernel("CSApplyIncrementalDelta");
                 m_CSSplatUtilities.SetBuffer(kernel, "_AccumulatedBuffer", m_GpuAccumulatedDeltaBuffer);

@@ -280,6 +280,36 @@ namespace GaussianSplatting.Editor
 
             EditorUtility.DisplayProgressBar(kProgressTitle, "Morton reordering", 0.05f);
             ReorderMorton(inputSplats, boundsMin, boundsMax);
+            string baseName = Path.GetFileNameWithoutExtension(FilePickerControl.PathToDisplayString(m_InputFile));
+
+            // --- 여기서부터 [ID 추출 로직] 추가 ---
+            // --- [수정된 ID 추출 및 정렬 로직] ---
+            string pathIds = $"{m_OutputFolder}/{baseName}_ids.bytes";
+            int idCount = inputSplats.Length;
+
+            // 데이터 크기를 8의 배수로 맞춥니다 (에러 방지 핵심)
+            int dataLen = idCount * 4; // int는 4바이트
+            int paddedLen = ((dataLen + 7) / 8) * 8; 
+
+            NativeArray<byte> idDataPadded = new NativeArray<byte>(paddedLen, Allocator.TempJob);
+            try {
+                // 실제 ID 데이터 복사
+                unsafe {
+                    int* srcPtr = (int*)idDataPadded.GetUnsafePtr();
+                    for (int i = 0; i < idCount; i++) {
+                        srcPtr[i] = inputSplats[i].vertexId;
+                    }
+                }
+
+                // 파일 저장
+                using (var fs = new FileStream(pathIds, FileMode.Create, FileAccess.Write)) {
+                    fs.Write(idDataPadded);
+                }
+            }
+            finally {
+                idDataPadded.Dispose();
+            }
+            // --- 수정 완료 ---
 
             // cluster SHs
             NativeArray<int> splatSHIndices = default;
@@ -289,8 +319,6 @@ namespace GaussianSplatting.Editor
                 EditorUtility.DisplayProgressBar(kProgressTitle, "Cluster SHs", 0.2f);
                 ClusterSHs(inputSplats, m_FormatSH, out clusteredSHs, out splatSHIndices);
             }
-
-            string baseName = Path.GetFileNameWithoutExtension(FilePickerControl.PathToDisplayString(m_InputFile));
 
             EditorUtility.DisplayProgressBar(kProgressTitle, "Creating data objects", 0.7f);
             GaussianSplatAsset asset = ScriptableObject.CreateInstance<GaussianSplatAsset>();
@@ -327,7 +355,9 @@ namespace GaussianSplatting.Editor
                 AssetDatabase.LoadAssetAtPath<TextAsset>(pathPos),
                 AssetDatabase.LoadAssetAtPath<TextAsset>(pathOther),
                 AssetDatabase.LoadAssetAtPath<TextAsset>(pathCol),
-                AssetDatabase.LoadAssetAtPath<TextAsset>(pathSh));
+                AssetDatabase.LoadAssetAtPath<TextAsset>(pathSh),
+                AssetDatabase.LoadAssetAtPath<TextAsset>(pathIds) // 6번째 인자로 ID 파일 추가
+                );
 
             var assetPath = $"{m_OutputFolder}/{baseName}.asset";
             var savedAsset = CreateOrReplaceAsset(asset, assetPath);

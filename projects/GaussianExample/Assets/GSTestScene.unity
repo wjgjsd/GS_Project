@@ -181,7 +181,7 @@ Camera:
     height: 1
   near clip plane: 0.3
   far clip plane: 1000
-  field of view: 60
+  field of view: 59.1
   orthographic: 0
   orthographic size: 5
   m_Depth: -1
@@ -207,8 +207,8 @@ Transform:
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 1234264138}
   serializedVersion: 2
-  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
-  m_LocalPosition: {x: 0, y: 1, z: -10}
+  m_LocalRotation: {x: -0.12419469, y: 0.0628248, z: 0.0052247536, w: -0.99025327}
+  m_LocalPosition: {x: 2.615963, y: 1.1778458, z: -0.37563252}
   m_LocalScale: {x: 1, y: 1, z: 1}
   m_ConstrainProportionsScale: 0
   m_Children: []
@@ -224,6 +224,7 @@ GameObject:
   m_Component:
   - component: {fileID: 1589090913}
   - component: {fileID: 1589090912}
+  - component: {fileID: 1589090914}
   m_Layer: 0
   m_Name: GaussianSplat
   m_TagString: Untagged
@@ -243,7 +244,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: c12d929a7f62c48adbe9ff45c9a33ff0, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  m_Asset: {fileID: 11400000, guid: c1fa8df50d90a574a93b5dc69d00527f, type: 2}
+  m_Asset: {fileID: 11400000, guid: 64188673443b43a4795080ff3f0ab9e8, type: 2}
   m_RenderOrder: 0
   m_SplatScale: 1
   m_OpacityScale: 1
@@ -273,6 +274,24 @@ Transform:
   m_Children: []
   m_Father: {fileID: 0}
   m_LocalEulerAnglesHint: {x: -166, y: 0, z: 0}
+--- !u!114 &1589090914
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1589090911}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 99d3157038db0454e85f4892753e0457, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  targetRenderer: {fileID: 1589090912}
+  startFrame: 2
+  endFrame: 300
+  fps: 30
+  loop: 1
+  isPlaying: 0
 --- !u!1 &1685392616
 GameObject:
   m_ObjectHideFlags: 0
@@ -371,6 +390,6 @@ Transform:
 SceneRoots:
   m_ObjectHideFlags: 0
   m_Roots:
-  - {fileID: 1234264141}
   - {fileID: 1685392618}
   - {fileID: 1589090913}
+  - {fileID: 1234264141}
