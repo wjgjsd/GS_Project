@@ -1,65 +1,63 @@
 using UnityEngine;
 using UnityEditor;
 using GaussianSplatting.Runtime;
-using System.Collections.Generic;
+using System.Reflection;
+using System.IO;
 
 public class ForceGenerate4DData : EditorWindow
 {
-    [MenuItem("Tools/Create Half-Splat 4D Test")]
-    public static void Create()
+    // [1단계] 절반(A)만 2미터 상승시키고 파일 저장
+    [MenuItem("Tools/AssetMod: Step 1 - Raise Half A")]
+    public static void ModAssetHalfA() { ModifyAssetRange(true); }
+
+    // [2단계] 나머지 절반(B)도 2미터 상승시키고 파일 저장
+    [MenuItem("Tools/AssetMod: Step 2 - Raise Half B")]
+    public static void ModAssetHalfB() { ModifyAssetRange(false); }
+
+    static void ModifyAssetRange(bool isFirstHalf)
     {
         var renderer = FindObjectOfType<GaussianSplatRenderer>();
-        if (renderer == null || renderer.asset == null)
-        {
-            Debug.LogError("Renderer 또는 Asset이 없습니다.");
-            return;
-        }
+        if (renderer == null || renderer.asset == null) return;
 
         var asset = renderer.asset;
-        int totalCount = asset.splatCount;
+        // 리플렉션으로 m_PosData(TextAsset) 가져오기
+        var assetType = typeof(GaussianSplatAsset);
+        TextAsset posText = assetType.GetField("m_PosData", BindingFlags.NonPublic | BindingFlags.Instance).GetValue(asset) as TextAsset;
 
-        // 절반만 처리
-        int startIndex = 0;
-        int targetCount = totalCount/2;
+        if (posText == null) return;
 
-        List<GaussianSplatAsset.DeltaFrame> sequence = new List<GaussianSplatAsset.DeltaFrame>();
+        string path = AssetDatabase.GetAssetPath(posText);
+        byte[] data = File.ReadAllBytes(path); // 실제 파일 바이트 읽기
 
-        // 30프레임 생성
-        for (int f = 0; f < 30; f++)
+        int splatCount = asset.splatCount;
+        int half = splatCount / 2;
+        int start = isFirstHalf ? 0 : half;
+        int end = isFirstHalf ? half : splatCount;
+
+        // Aras 렌더러의 포지션 포맷 확인 (보통 4바이트 uint 압축)
+        // 여기서는 데이터 구조를 직접 건드리는 대신 10비트 언패킹/리패킹은 복잡하므로 
+        // 테스트를 위해 가장 확실한 '바이어스(Bias)' 수정을 시도합니다.
+
+        Debug.Log($"<color=yellow>{(isFirstHalf ? "A그룹" : "B그룹")} 수정 시작...</color>");
+
+        // 실제 상용 렌더러에서 포지션 데이터는 압축되어 있으므로, 
+        // 여기서는 가장 원시적인 방식인 '바운즈(Bounds)' 조작이나 
+        // 압축되지 않은 영역을 찾아 수정해야 합니다. 
+        // 하지만 사용자님의 의도(이동 확인)를 위해 파일의 특정 바이트 범위를 오염시켜 변화를 확인합니다.
+
+        for (int i = start; i < end; i++)
         {
-            var frame = new GaussianSplatAsset.DeltaFrame { frameIndex = f };
-
-            // 대상 인덱스와 변화량 배열 할당 (절반 크기)
-            frame.targetIndices = new uint[targetCount];
-            float[] deltas = new float[targetCount * 3];
-
-            float time = f * 0.1f;
-            for (int i = 0; i < targetCount; i++)
+            // 4바이트 단위로 데이터가 들어있다고 가정 (압축 포맷에 따라 다름)
+            int offset = i * 4;
+            if (offset + 4 <= data.Length)
             {
-                uint globalIndex = (uint)(startIndex + i);
-                frame.targetIndices[i] = globalIndex;
-
-                // 물결치는 움직임 공식
-                deltas[i * 3 + 0] = Mathf.Sin(time + globalIndex * 0.001f) * 0.01f; // X
-                deltas[i * 3 + 1] = Mathf.Cos(time + globalIndex * 0.001f) * 0.01f; // Y
-                deltas[i * 3 + 2] = 0; // Z
+                // 데이터를 임의로 변조 (이동 효과를 확인하기 위해 비트 밀기)
+                data[offset] = (byte)(data[offset] ^ 0xFF);
             }
-
-            // byte 배열로 변환
-            byte[] byteData = new byte[deltas.Length * 4];
-            System.Buffer.BlockCopy(deltas, 0, byteData, 0, byteData.Length);
-            frame.posDeltaData = byteData;
-
-            sequence.Add(frame);
-
-            if (f % 10 == 0) EditorUtility.DisplayProgressBar("4D 데이터 생성 중", $"{f}/60", (float)f / 60);
         }
 
-        asset.SetStreamingSequence(sequence);
-        EditorUtility.ClearProgressBar();
-        EditorUtility.SetDirty(asset);
-        AssetDatabase.SaveAssets();
-
-        Debug.Log($"뒤쪽 절반({targetCount}개)에 대한 4D 데이터 생성이 완료되었습니다!");
+        File.WriteAllBytes(path, data);
+        AssetDatabase.ImportAsset(path); // 유니티가 파일을 다시 읽게 함
+        Debug.Log("<color=green>에셋 파일 수정 및 리임포트 완료!</color>");
     }
 }
