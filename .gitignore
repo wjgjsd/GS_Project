@@ -20,6 +20,8 @@
 /projects/**/Assets/GaussianAssets/*
 /projects/**/Assets/GaussianAssets.meta
 /projects/**/Assets/Models~/*
+/projects/**/Assets/Deltas/*
+/projects/**/Assets/Deltas.meta
 /projects/**/Library/*
 /projects/**/Logs/*
 /projects/**/Temp/*

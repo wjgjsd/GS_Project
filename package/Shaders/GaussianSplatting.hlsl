@@ -202,6 +202,14 @@ struct SplatChunkInfo
 };
 
 StructuredBuffer<SplatChunkInfo> _SplatChunks;
+// QUEEN 델타 스트리밍을 위한 버퍼 추가
+struct SplatDeltaData {
+    float3 posDelta;
+    float4 rotDelta;
+    float opacityDelta;
+};
+StructuredBuffer<SplatDeltaData> _SplatDeltaBuffer;
+int _UseDeltaStreaming; // 델타 적용 여부 플래그
 uint _SplatChunkCount;
 
 static const uint kChunkSize = 256;
@@ -603,6 +611,21 @@ SplatData LoadSplatData(uint idx)
     }
     s.opacity   = col.a;
     s.sh.col    = col.rgb;
+
+    if (_UseDeltaStreaming > 0)
+    {
+        SplatDeltaData d = _SplatDeltaBuffer[idx];
+        
+        // 1. 위치 합산
+        s.pos += d.posDelta;
+        
+        // 2. 회전 합산 및 정규화
+        // 파이썬에서 (Target - Base)로 구했으므로 단순히 더한 후 normalize합니다.
+        s.rot = normalize(s.rot + d.rotDelta);
+        
+        // 3. 투명도 합산
+        s.opacity = saturate(s.opacity + d.opacityDelta);
+    }
 
     return s;
 }

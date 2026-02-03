@@ -186,19 +186,33 @@ namespace GaussianSplatting.Editor.Utils
         static unsafe void ReorderSHs(int splatCount, float* data)
         {
             int splatStride = UnsafeUtility.SizeOf<InputSplatData>() / 4;
-            int shStartOffset = 9, shCount = 15;
-            float* tmp = stackalloc float[shCount * 3];
+            int shStartOffset = 9; 
+            
+            // QUEEN용 수정: QUEEN은 SH Degree 2를 사용하므로 총 24개의 rest 계수가 있음 (RGB당 8개씩)
+            // 원래 유니티 규격은 45개(RGB당 15개씩). 
+            // 여기서는 파일에서 읽어온 순서(R0, R1.. G0, G1.. B0, B1..)를 
+            // 렌더러가 기대하는 순서(세트별 RGB)로 바꿉니다.
+            
+            int shSetsInFile = 8; // f_rest_0~23은 RGB 각 8개씩 총 24개
+            int shSetsInUnity = 15; // 유니티 구조체 공간
+            
+            float* tmp = stackalloc float[shSetsInUnity * 3];
             int idx = shStartOffset;
+
             for (int i = 0; i < splatCount; ++i)
             {
-                for (int j = 0; j < shCount; ++j)
+                UnsafeUtility.MemClear(tmp, shSetsInUnity * 3 * sizeof(float));
+
+                for (int j = 0; j < shSetsInFile; ++j)
                 {
+                    // QUEEN 파일 구조: [f_rest_0..7 (R)], [f_rest_8..15 (G)], [f_rest_16..23 (B)]
                     tmp[j * 3 + 0] = data[idx + j];
-                    tmp[j * 3 + 1] = data[idx + j + shCount];
-                    tmp[j * 3 + 2] = data[idx + j + shCount * 2];
+                    tmp[j * 3 + 1] = data[idx + j + shSetsInFile];
+                    tmp[j * 3 + 2] = data[idx + j + shSetsInFile * 2];
                 }
 
-                for (int j = 0; j < shCount * 3; ++j)
+                // 유니티 구조체의 SH 공간(45개)에 다시 덮어쓰기
+                for (int j = 0; j < shSetsInUnity * 3; ++j)
                 {
                     data[idx + j] = tmp[j];
                 }

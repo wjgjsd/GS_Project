@@ -433,18 +433,9 @@ namespace GaussianSplatting.Editor
         {
             for (int i = 0; i < splatCount; ++i)
             {
-                // 수정 포인트: 15*3(45개) 전체를 복사하는 것이 아니라, 
-                // QUEEN이 가진 데이터(24개)만큼만 복사하고 나머지는 0으로 초기화해야 합니다.
-                
-                // 1. 전체 45개 자리를 0으로 초기화 (색상 왜곡 방지)
-                UnsafeUtility.MemClear(shData, 15 * 3 * sizeof(float));
-                
-                // 2. QUEEN의 실제 데이터 (f_rest_0 ~ 23 = 24개)만 복사
-                // 구조체 내부 오프셋을 확인해야 하지만, 일반적으로 f_dc 이후가 SH rest입니다.
-                UnsafeUtility.MemCpy(shData, ((float*)splatData) + 9, 24 * sizeof(float)); 
-
+                UnsafeUtility.MemCpy(shData, ((float*)splatData) + 9, 15 * 3 * sizeof(float));
                 splatData++;
-                shData += 15 * 3; // 메모리 레이아웃은 유니티 규격(45개)을 유지해야 렌더러가 작동함
+                shData += 15 * 3;
             }
         }
 
