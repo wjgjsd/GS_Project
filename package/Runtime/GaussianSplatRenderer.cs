@@ -1117,6 +1117,7 @@ namespace GaussianSplatting.Runtime
             Graphics.ExecuteCommandBuffer(cmb);
         }
 
+        SplatDeltaData[] m_DeltaUpdateArray;
         public void UpdateDeltaFrame(int frameNumber)
         {
             if (m_GpuAccumulatedDeltaBuffer == null) return;
@@ -1130,18 +1131,25 @@ namespace GaussianSplatting.Runtime
             string path = Path.Combine(Application.dataPath, "Deltas", $"frame_{frameNumber:D3}.delta");
             if (File.Exists(path))
             {
-                // 1. 파일에서 바이트 데이터를 읽어옴
                 byte[] fileBytes = File.ReadAllBytes(path);
-                
-                // 2. 버퍼의 전체 바이트 크기 계산 (가우시안 개수 * 32바이트)
-                int bufferByteSize = m_GpuIncomingDeltaBuffer.count * 32;
+                int splatCountInFile = fileBytes.Length / 32; // 32바이트(float8개) 단위
 
-                // 3. 파일 크기가 버퍼보다 크면 버퍼 크기만큼만 사용 (Overflow 방지)
-                int safeByteSize = Math.Min(fileBytes.Length, bufferByteSize);
+                // 임시 배열 크기 맞춰서 생성/재사용
+                if (m_DeltaUpdateArray == null || m_DeltaUpdateArray.Length != splatCountInFile)
+                    m_DeltaUpdateArray = new SplatDeltaData[splatCountInFile];
 
-                // 4. [수정] 데이터를 버퍼 크기에 맞춰서 안전하게 전달
-                // SetData에 복사할 바이트 크기를 명시합니다.
-                m_GpuIncomingDeltaBuffer.SetData(fileBytes, 0, 0, safeByteSize);
+                // [핵심] 바이트 배열을 구조체 배열로 안전하게 복사
+                fixed (byte* ptr = fileBytes)
+                {
+                    UnsafeUtility.MemCpy(
+                        UnsafeUtility.AddressOf(ref m_DeltaUpdateArray[0]), 
+                        ptr, 
+                        splatCountInFile * 32);
+                }
+
+                // 버퍼에 데이터 전송 (개수 맞춰서 안전하게)
+                int safeCount = Math.Min(m_DeltaUpdateArray.Length, m_GpuIncomingDeltaBuffer.count);
+                m_GpuIncomingDeltaBuffer.SetData(m_DeltaUpdateArray, 0, 0, safeCount);
 
                 int kernel = m_CSSplatUtilities.FindKernel("CSApplyIncrementalDelta");
                 m_CSSplatUtilities.SetBuffer(kernel, "_AccumulatedBuffer", m_GpuAccumulatedDeltaBuffer);
