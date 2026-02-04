@@ -759,20 +759,23 @@ void CSCopySplats (uint3 id : SV_DispatchThreadID)
     }
 
 }
-// SplatUtilities.compute 맨 밑에 추가 (기존에 추가했던 struct 등은 다 지우세요)
+struct SplatDeltaCustom
+{
+    float3 posDelta;    // 12
+    float pad0;         // 4 (16바이트 정렬용)
+    float4 rotDelta;    // 16
+    float opacityDelta; // 4
+    float3 pad1;        // 12 (총 48바이트 정렬용)
+};
 
-// 델타 버퍼와 카운트 변수 선언 (구조체 정의 없이 이름만 사용)
-RWStructuredBuffer<SplatDeltaData> _AccumulatedBuffer;
-StructuredBuffer<SplatDeltaData> _IncomingBuffer;
+RWStructuredBuffer<SplatDeltaCustom> _AccumulatedBuffer;
+StructuredBuffer<SplatDeltaCustom> _IncomingBuffer;
 uint _SplatCountDelta;
 
 [numthreads(GROUP_SIZE, 1, 1)]
 void CSApplyIncrementalDelta (uint3 id : SV_DispatchThreadID)
 {
     if (id.x >= _SplatCountDelta) return;
-
-    // 누적 연산
-    _AccumulatedBuffer[id.x].posDelta += _IncomingBuffer[id.x].posDelta;
-    _AccumulatedBuffer[id.x].rotDelta += _IncomingBuffer[id.x].rotDelta;
-    _AccumulatedBuffer[id.x].opacityDelta += _IncomingBuffer[id.x].opacityDelta;
+    // 파이썬에서 정렬해서 보냈으므로 그대로 복사
+    _AccumulatedBuffer[id.x] = _IncomingBuffer[id.x];
 }

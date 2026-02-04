@@ -225,12 +225,14 @@ namespace GaussianSplatting.Runtime
             DebugChunkBounds,
         }
         public GaussianSplatAsset m_Asset;
-        [System.Runtime.InteropServices.StructLayout(System.Runtime.InteropServices.LayoutKind.Sequential)]
-        public struct SplatDeltaData
+        [System.Runtime.InteropServices.StructLayout(System.Runtime.InteropServices.LayoutKind.Explicit, Size = 48)]
+        public struct SplatDeltaCustom // 이름 셰이더랑 일치
         {
-            public Vector3 posDelta;
-            public Quaternion rotDelta;
-            public float opacityDelta;
+            [System.Runtime.InteropServices.FieldOffset(0)] public Vector3 posDelta;
+            [System.Runtime.InteropServices.FieldOffset(12)] public float pad0;
+            [System.Runtime.InteropServices.FieldOffset(16)] public Quaternion rotDelta;
+            [System.Runtime.InteropServices.FieldOffset(32)] public float opacityDelta;
+            [System.Runtime.InteropServices.FieldOffset(36)] public Vector3 pad1;
         }
 
         [Tooltip("Rendering order compared to other splats. Within same order splats are sorted by distance. Higher order splats render 'on top of' lower order splats.")]
@@ -400,10 +402,10 @@ namespace GaussianSplatting.Runtime
             m_GpuOtherData.SetData(asset.otherData.GetData<uint>());
             m_GpuSHData = new GraphicsBuffer(GraphicsBuffer.Target.Raw, (int) (asset.shData.dataSize / 4), 4) { name = "GaussianSHData" };
             m_GpuSHData.SetData(asset.shData.GetData<uint>());
-            m_GpuAccumulatedDeltaBuffer = new GraphicsBuffer(GraphicsBuffer.Target.Structured, m_SplatCount, 32);
-            m_GpuIncomingDeltaBuffer = new GraphicsBuffer(GraphicsBuffer.Target.Structured, m_SplatCount, 32);
+            m_GpuAccumulatedDeltaBuffer = new GraphicsBuffer(GraphicsBuffer.Target.Structured, m_SplatCount, 48);
+            m_GpuIncomingDeltaBuffer = new GraphicsBuffer(GraphicsBuffer.Target.Structured, m_SplatCount, 48);
             // 처음에 0으로 깨끗하게 밀어줌
-            m_GpuAccumulatedDeltaBuffer.SetData(new SplatDeltaData[m_SplatCount]);
+            m_GpuAccumulatedDeltaBuffer.SetData(new SplatDeltaCustom[m_SplatCount]);
             var (texWidth, texHeight) = GaussianSplatAsset.CalcTextureSize(asset.splatCount);
             var texFormat = GaussianSplatAsset.ColorFormatToGraphics(asset.colorFormat);
             var tex = new Texture2D(texWidth, texHeight, texFormat, TextureCreationFlags.DontInitializePixels | TextureCreationFlags.IgnoreMipmapLimit | TextureCreationFlags.DontUploadUponCreate) { name = "GaussianColorData" };
@@ -1117,40 +1119,40 @@ namespace GaussianSplatting.Runtime
             Graphics.ExecuteCommandBuffer(cmb);
         }
 
-        SplatDeltaData[] m_DeltaUpdateArray;
-        public void UpdateDeltaFrame(int frameNumber)
+        SplatDeltaCustom[] m_DeltaUpdateArray;
+        public unsafe void UpdateDeltaFrame(int frameNumber)
         {
             if (m_GpuAccumulatedDeltaBuffer == null) return;
 
+            // 1프레임 이하이거나 초기화가 필요할 때 처리
             if (frameNumber <= 1) {
-                m_GpuAccumulatedDeltaBuffer.SetData(new SplatDeltaData[m_SplatCount]);
+                m_GpuAccumulatedDeltaBuffer.SetData(new SplatDeltaCustom[m_SplatCount]);
                 m_MatSplats.SetInt("_UseDeltaStreaming", 0);
                 return;
             }
 
-            string path = Path.Combine(Application.dataPath, "Deltas", $"frame_{frameNumber:D3}.delta");
+            // 파일 경로 설정 (자릿수는 님의 파일명 규칙 :D3 또는 :D4 등에 맞춰 확인 필요)
+            string path = Path.Combine(Application.dataPath, "Deltas", $"frame_{frameNumber:D4}.delta");
+
+            // [핵심 방어 로직] 파일이 존재하는지 먼저 확인
             if (File.Exists(path))
             {
                 byte[] fileBytes = File.ReadAllBytes(path);
-                int splatCountInFile = fileBytes.Length / 32; // 32바이트(float8개) 단위
+                int splatCountInFile = fileBytes.Length / 32;
 
-                // 임시 배열 크기 맞춰서 생성/재사용
                 if (m_DeltaUpdateArray == null || m_DeltaUpdateArray.Length != splatCountInFile)
-                    m_DeltaUpdateArray = new SplatDeltaData[splatCountInFile];
+                    m_DeltaUpdateArray = new SplatDeltaCustom[splatCountInFile];
 
-                // [핵심] 바이트 배열을 구조체 배열로 안전하게 복사
-                fixed (byte* ptr = fileBytes)
+                fixed (byte* src = fileBytes)
+                fixed (SplatDeltaCustom* dst = m_DeltaUpdateArray)
                 {
-                    UnsafeUtility.MemCpy(
-                        UnsafeUtility.AddressOf(ref m_DeltaUpdateArray[0]), 
-                        ptr, 
-                        splatCountInFile * 32);
+                    UnsafeUtility.MemCpy(dst, src, splatCountInFile * 32);
                 }
 
-                // 버퍼에 데이터 전송 (개수 맞춰서 안전하게)
                 int safeCount = Math.Min(m_DeltaUpdateArray.Length, m_GpuIncomingDeltaBuffer.count);
                 m_GpuIncomingDeltaBuffer.SetData(m_DeltaUpdateArray, 0, 0, safeCount);
 
+                // Compute Shader를 통해 델타 적용 (이전 값을 덮어쓰거나 더함)
                 int kernel = m_CSSplatUtilities.FindKernel("CSApplyIncrementalDelta");
                 m_CSSplatUtilities.SetBuffer(kernel, "_AccumulatedBuffer", m_GpuAccumulatedDeltaBuffer);
                 m_CSSplatUtilities.SetBuffer(kernel, "_IncomingBuffer", m_GpuIncomingDeltaBuffer);
@@ -1159,6 +1161,14 @@ namespace GaussianSplatting.Runtime
 
                 m_MatSplats.SetBuffer("_SplatDeltaBuffer", m_GpuAccumulatedDeltaBuffer);
                 m_MatSplats.SetInt("_UseDeltaStreaming", 1);
+            }
+            else 
+            {
+                // [파일이 없을 경우]
+                // 아무것도 하지 않습니다. 
+                // 결과적으로 GPU의 _AccumulatedBuffer에는 이전 프레임의 델타가 그대로 남아있게 되어,
+                // 화면상에서는 캐릭터가 멈춘 상태(Static)로 유지되며 튕기지 않습니다.
+                Debug.LogWarning($"[DeltaSkip] {frameNumber}번 델타 파일이 없어 이전 프레임을 유지합니다.");
             }
         }
     }
