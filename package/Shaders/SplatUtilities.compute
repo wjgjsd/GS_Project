@@ -48,6 +48,18 @@ int _SelectionMode;
 
 RWStructuredBuffer<uint> _SplatSortDistances;
 RWStructuredBuffer<uint> _SplatSortKeys;
+struct SplatDeltaCustom
+{
+    float3 posDelta;    // 12
+    float pad0;         // 4 (16바이트 정렬용)
+    float4 rotDelta;    // 16
+    float opacityDelta; // 4
+    float3 pad1;        // 12 (총 48바이트 정렬용)
+};
+
+RWStructuredBuffer<SplatDeltaCustom> _AccumulatedBuffer;
+StructuredBuffer<SplatDeltaCustom> _IncomingBuffer;
+uint _SplatCountDelta;
 uint _SplatCount;
 
 // radix sort etc. friendly, see http://stereopsis.com/radix.html
@@ -79,6 +91,7 @@ void CSCalcDistances (uint3 id : SV_DispatchThreadID)
 
     float3 pos = LoadSplatPos(origIdx);
     pos = mul(_MatrixMV, float4(pos.xyz, 1)).xyz;
+    pos += _AccumulatedBuffer[origIdx].posDelta; // 이 줄 추가!
 
     _SplatSortDistances[idx] = FloatToSortableUint(pos.z);
 }
@@ -759,18 +772,6 @@ void CSCopySplats (uint3 id : SV_DispatchThreadID)
     }
 
 }
-struct SplatDeltaCustom
-{
-    float3 posDelta;    // 12
-    float pad0;         // 4 (16바이트 정렬용)
-    float4 rotDelta;    // 16
-    float opacityDelta; // 4
-    float3 pad1;        // 12 (총 48바이트 정렬용)
-};
-
-RWStructuredBuffer<SplatDeltaCustom> _AccumulatedBuffer;
-StructuredBuffer<SplatDeltaCustom> _IncomingBuffer;
-uint _SplatCountDelta;
 
 [numthreads(GROUP_SIZE, 1, 1)]
 void CSApplyIncrementalDelta (uint3 id : SV_DispatchThreadID)
