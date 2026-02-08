@@ -22,6 +22,8 @@
 /projects/**/Assets/Models~/*
 /projects/**/Assets/Deltas/*
 /projects/**/Assets/Deltas.meta
+/projects/**/Assets/Deltas_save/*
+/projects/**/Assets/Deltas_save.meta
 /projects/**/Library/*
 /projects/**/Logs/*
 /projects/**/Temp/*

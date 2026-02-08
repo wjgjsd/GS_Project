@@ -612,7 +612,7 @@ SplatData LoadSplatData(uint idx)
     s.opacity   = col.a;
     s.sh.col    = col.rgb;
 
-    if (_UseDeltaStreaming > 0)
+    /*if (_UseDeltaStreaming > 0)
     {
         SplatDeltaData d = _SplatDeltaBuffer[idx];
         
@@ -625,7 +625,7 @@ SplatData LoadSplatData(uint idx)
         
         // 3. 투명도 합산
         s.opacity = saturate(s.opacity + d.opacityDelta);
-    }
+    }*/
 
     return s;
 }
