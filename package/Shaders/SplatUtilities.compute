@@ -794,5 +794,6 @@ void CSApplyIncrementalDelta (uint3 id : SV_DispatchThreadID)
 {
     if (id.x >= _SplatCountDelta) return;
     // 파이썬에서 정렬해서 보냈으므로 그대로 복사
-    _AccumulatedBuffer[id.x] = _IncomingBuffer[id.x];
+    _AccumulatedBuffer[id.x].posDelta = _IncomingBuffer[id.x].posDelta;
+    _AccumulatedBuffer[id.x].rotDelta = _IncomingBuffer[id.x].rotDelta; // (쿼터니언 누적은 주의가 필요하지만 일단 테스트)
 }
