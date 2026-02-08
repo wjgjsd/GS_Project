@@ -90,8 +90,9 @@ void CSCalcDistances (uint3 id : SV_DispatchThreadID)
     uint origIdx = _SplatSortKeys[idx];
 
     float3 pos = LoadSplatPos(origIdx);
+    pos += _AccumulatedBuffer[origIdx].posDelta* 0.001f; // 이 줄 추가!
     pos = mul(_MatrixMV, float4(pos.xyz, 1)).xyz;
-    pos += _AccumulatedBuffer[origIdx].posDelta; // 이 줄 추가!
+    
 
     _SplatSortDistances[idx] = FloatToSortableUint(pos.z);
 }
@@ -207,8 +208,14 @@ void CSCalcViewData (uint3 id : SV_DispatchThreadID)
     uint idx = id.x;
     if (idx >= _SplatCount)
         return;
+    // 1. [아이디 찾기] 현재 순서(idx)가 원래 몇 번 가우시안인지 조회
+    uint oIdx = _SplatSortKeys[idx]; 
 
+    // 2. [데이터 로드] 반드시 oIdx를 써서 원본 데이터와 델타를 가져옴
     SplatData splat = LoadSplatData(idx);
+    // C#에서 설정한 이름(_AccumulatedBuffer)으로 델타 더하기
+    splat.pos += _AccumulatedBuffer[oIdx].posDelta* 0.001f; 
+
     SplatViewData view = (SplatViewData)0;
     
     float3 centerWorldPos = mul(_MatrixObjectToWorld, float4(splat.pos,1)).xyz;
@@ -261,6 +268,16 @@ void CSCalcViewData (uint3 id : SV_DispatchThreadID)
         col.a = min(splat.opacity * opacityScale, 65000);
         view.color.x = (f32tof16(col.r) << 16) | f32tof16(col.g);
         view.color.y = (f32tof16(col.b) << 16) | f32tof16(col.a);
+
+        /*// --- 여기서부터 디버깅 코드 시작 ---
+        float3 dPos = _AccumulatedBuffer[oIdx].posDelta;
+        
+        // 델타 값이 0이 아닌(데이터가 들어있는) 가우시안만 새빨갛게 칠합니다.
+        if (length(dPos) > 0.05f) {
+            // 5cm 이상 움직이는 놈만 빨간색으로 표시
+            view.color.x = (f32tof16(1.0) << 16) | f32tof16(0.0);
+        }
+        // --- 디버깅 코드 끝 ---8*/
     }
     
     _SplatViewData[idx] = view;

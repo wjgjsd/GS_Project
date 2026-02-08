@@ -535,7 +535,7 @@ namespace GaussianSplatting.Runtime
             cmb.SetComputeIntParam(cs, Props.SplatCutoutsCount, m_Cutouts?.Length ?? 0);
             cmb.SetComputeBufferParam(cs, kernelIndex, Props.SplatCutouts, m_GpuEditCutouts);
             // m_GpuDeltaStreamBuffer 대신 실제 데이터가 쌓이는 m_GpuAccumulatedDeltaBuffer를 연결
-            cmb.SetComputeBufferParam(cs, kernelIndex, "_SplatDeltaBuffer", m_GpuAccumulatedDeltaBuffer ?? m_GpuPosData);
+            cmb.SetComputeBufferParam(cs, kernelIndex, "_AccumulatedBuffer", m_GpuAccumulatedDeltaBuffer ?? m_GpuPosData);
             cmb.SetComputeIntParam(cs, "_UseDeltaStreaming", m_GpuAccumulatedDeltaBuffer != null ? 1 : 0);
         }
 
@@ -554,7 +554,7 @@ namespace GaussianSplatting.Runtime
             mat.SetInteger(Props.SplatChunkCount, m_GpuChunksValid ? m_GpuChunks.count : 0);
             if (m_GpuAccumulatedDeltaBuffer != null)
             {
-                mat.SetBuffer("_SplatDeltaBuffer", m_GpuAccumulatedDeltaBuffer);
+                mat.SetBuffer("_AccumulatedBuffer", m_GpuAccumulatedDeltaBuffer);
                 mat.SetInt("_UseDeltaStreaming", 1);
             }
         }
@@ -1166,7 +1166,7 @@ namespace GaussianSplatting.Runtime
                 m_CSSplatUtilities.SetInt("_SplatCountDelta", m_SplatCount);
                 m_CSSplatUtilities.Dispatch(kernel, (m_SplatCount + 1023) / 1024, 1, 1);
 
-                m_MatSplats.SetBuffer("_SplatDeltaBuffer", m_GpuAccumulatedDeltaBuffer);
+                m_MatSplats.SetBuffer("_AccumulatedBuffer", m_GpuAccumulatedDeltaBuffer);
                 m_MatSplats.SetInt("_UseDeltaStreaming", 1);
             }
             else 
