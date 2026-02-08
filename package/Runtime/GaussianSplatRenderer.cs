@@ -3,6 +3,7 @@
 using System;
 using System.IO; // Path, File 에러 해결
 using GaussianSplatting.Runtime; // SplatDeltaData 참조 해결 (이미 있으면 통과)
+using System.Runtime.InteropServices; // 이 줄을 추가하세요
 using System.Collections.Generic;
 using Unity.Collections;
 using Unity.Collections.LowLevel.Unsafe;
@@ -226,13 +227,13 @@ namespace GaussianSplatting.Runtime
         }
         public GaussianSplatAsset m_Asset;
         [System.Runtime.InteropServices.StructLayout(System.Runtime.InteropServices.LayoutKind.Explicit, Size = 48)]
-        public struct SplatDeltaCustom // 이름 셰이더랑 일치
+        public struct SplatDeltaCustom
         {
-            [System.Runtime.InteropServices.FieldOffset(0)] public Vector3 posDelta;
-            [System.Runtime.InteropServices.FieldOffset(12)] public float pad0;
-            [System.Runtime.InteropServices.FieldOffset(16)] public Quaternion rotDelta;
-            [System.Runtime.InteropServices.FieldOffset(32)] public float opacityDelta;
-            [System.Runtime.InteropServices.FieldOffset(36)] public Vector3 pad1;
+            [FieldOffset(0)] public Vector3 posDelta;    // 12 bytes
+            [FieldOffset(12)] public Quaternion rotDelta; // 16 bytes
+            [FieldOffset(28)] public Vector3 scaleDelta;  // 12 bytes
+            [FieldOffset(40)] public float opacityDelta;  // 4 bytes
+            [FieldOffset(44)] public float pad;           // 4 bytes
         }
 
         [Tooltip("Rendering order compared to other splats. Within same order splats are sorted by distance. Higher order splats render 'on top of' lower order splats.")]
@@ -534,9 +535,23 @@ namespace GaussianSplatting.Runtime
             UpdateCutoutsBuffer();
             cmb.SetComputeIntParam(cs, Props.SplatCutoutsCount, m_Cutouts?.Length ?? 0);
             cmb.SetComputeBufferParam(cs, kernelIndex, Props.SplatCutouts, m_GpuEditCutouts);
-            // m_GpuDeltaStreamBuffer 대신 실제 데이터가 쌓이는 m_GpuAccumulatedDeltaBuffer를 연결
-            cmb.SetComputeBufferParam(cs, kernelIndex, "_AccumulatedBuffer", m_GpuAccumulatedDeltaBuffer ?? m_GpuPosData);
-            cmb.SetComputeIntParam(cs, "_UseDeltaStreaming", m_GpuAccumulatedDeltaBuffer != null ? 1 : 0);
+            if (m_GpuAccumulatedDeltaBuffer != null)
+            {
+                // 1. 공장용(SplatUtilities 전용): 데이터를 쓰고 가공할 때 쓰는 이름
+                cmb.SetComputeBufferParam(cs, kernelIndex, "_AccumulatedBuffer", m_GpuAccumulatedDeltaBuffer);
+                
+                // 2. 전시장용(GaussianSplatting 전용): CSCalcViewData 커널이 계산할 때 읽는 이름
+                cmb.SetComputeBufferParam(cs, kernelIndex, "_SplatDeltaBuffer", m_GpuAccumulatedDeltaBuffer);
+                
+                cmb.SetComputeIntParam(cs, "_UseDeltaStreaming", 1);
+            }
+            else
+            {
+                // 버퍼가 없을 때 에러 방지를 위해 가짜(더미) 버퍼라도 연결 (보통 PosData 사용)
+                cmb.SetComputeBufferParam(cs, kernelIndex, "_AccumulatedBuffer", m_GpuPosData);
+                cmb.SetComputeBufferParam(cs, kernelIndex, "_SplatDeltaBuffer", m_GpuPosData);
+                cmb.SetComputeIntParam(cs, "_UseDeltaStreaming", 0);
+            }
         }
 
         internal void SetAssetDataOnMaterial(MaterialPropertyBlock mat)
@@ -554,7 +569,7 @@ namespace GaussianSplatting.Runtime
             mat.SetInteger(Props.SplatChunkCount, m_GpuChunksValid ? m_GpuChunks.count : 0);
             if (m_GpuAccumulatedDeltaBuffer != null)
             {
-                mat.SetBuffer("_AccumulatedBuffer", m_GpuAccumulatedDeltaBuffer);
+                mat.SetBuffer("_SplatDeltaBuffer", m_GpuAccumulatedDeltaBuffer);
                 mat.SetInt("_UseDeltaStreaming", 1);
             }
         }
@@ -645,7 +660,7 @@ namespace GaussianSplatting.Runtime
             cmb.SetComputeIntParam(m_CSSplatUtilities, Props.SHOrder, m_SHOrder);
             cmb.SetComputeIntParam(m_CSSplatUtilities, Props.SHOnly, m_SHOnly ? 1 : 0);
             // [필수 추가] 셰이더가 정렬 키를 읽을 수 있게 연결해줘야 합니다.
-            cmb.SetComputeBufferParam(m_CSSplatUtilities, kernelView, "_SplatSortKeys", m_GpuSortKeys); 
+            cmb.SetComputeBufferParam(m_CSSplatUtilities, kernelView, "_AccumulatedBuffer", m_GpuSortKeys); 
             cmb.SetComputeBufferParam(m_CSSplatUtilities, kernelView, "_AccumulatedBuffer", m_GpuAccumulatedDeltaBuffer);
 
             m_CSSplatUtilities.GetKernelThreadGroupSizes((int)KernelIndices.CalcViewData, out uint gsX, out _, out _);
@@ -1145,7 +1160,7 @@ namespace GaussianSplatting.Runtime
             if (File.Exists(path))
             {
                 byte[] fileBytes = File.ReadAllBytes(path);
-                int splatCountInFile = fileBytes.Length / 32;
+                int splatCountInFile = fileBytes.Length / 48;
 
                 if (m_DeltaUpdateArray == null || m_DeltaUpdateArray.Length != splatCountInFile)
                     m_DeltaUpdateArray = new SplatDeltaCustom[splatCountInFile];
@@ -1153,7 +1168,7 @@ namespace GaussianSplatting.Runtime
                 fixed (byte* src = fileBytes)
                 fixed (SplatDeltaCustom* dst = m_DeltaUpdateArray)
                 {
-                    UnsafeUtility.MemCpy(dst, src, splatCountInFile * 32);
+                    UnsafeUtility.MemCpy(dst, src, splatCountInFile * 48);
                 }
 
                 int safeCount = Math.Min(m_DeltaUpdateArray.Length, m_GpuIncomingDeltaBuffer.count);
@@ -1166,7 +1181,7 @@ namespace GaussianSplatting.Runtime
                 m_CSSplatUtilities.SetInt("_SplatCountDelta", m_SplatCount);
                 m_CSSplatUtilities.Dispatch(kernel, (m_SplatCount + 1023) / 1024, 1, 1);
 
-                m_MatSplats.SetBuffer("_AccumulatedBuffer", m_GpuAccumulatedDeltaBuffer);
+                m_MatSplats.SetBuffer("_SplatDeltaBuffer", m_GpuAccumulatedDeltaBuffer);
                 m_MatSplats.SetInt("_UseDeltaStreaming", 1);
             }
             else 

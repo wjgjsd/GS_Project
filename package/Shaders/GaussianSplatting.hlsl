@@ -206,7 +206,9 @@ StructuredBuffer<SplatChunkInfo> _SplatChunks;
 struct SplatDeltaData {
     float3 posDelta;
     float4 rotDelta;
+    float3 scaleDelta;  // 스케일 추가
     float opacityDelta;
+    float _pad;
 };
 StructuredBuffer<SplatDeltaData> _SplatDeltaBuffer;
 int _UseDeltaStreaming; // 델타 적용 여부 플래그
@@ -612,20 +614,13 @@ SplatData LoadSplatData(uint idx)
     s.opacity   = col.a;
     s.sh.col    = col.rgb;
 
-    /*if (_UseDeltaStreaming > 0)
-    {
+    if (_UseDeltaStreaming > 0) {
         SplatDeltaData d = _SplatDeltaBuffer[idx];
-        
-        // 1. 위치 합산
-        s.pos += d.posDelta;
-        
-        // 2. 회전 합산 및 정규화
-        // 파이썬에서 (Target - Base)로 구했으므로 단순히 더한 후 normalize합니다.
-        s.rot = normalize(s.rot + d.rotDelta);
-        
-        // 3. 투명도 합산
-        s.opacity = saturate(s.opacity + d.opacityDelta);
-    }*/
+        s.pos += d.posDelta*0.001f;          // 위치(이동) 반영;
+        s.rot = normalize(s.rot + d.rotDelta * 0.1f);
+        s.scale += d.scaleDelta*0.00001f;             // 스케일(변형) 반영
+        s.opacity = saturate(s.opacity + d.opacityDelta * 0.001f);
+    }
 
     return s;
 }

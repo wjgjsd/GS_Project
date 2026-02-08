@@ -48,13 +48,12 @@ int _SelectionMode;
 
 RWStructuredBuffer<uint> _SplatSortDistances;
 RWStructuredBuffer<uint> _SplatSortKeys;
-struct SplatDeltaCustom
-{
-    float3 posDelta;    // 12
-    float pad0;         // 4 (16바이트 정렬용)
-    float4 rotDelta;    // 16
-    float opacityDelta; // 4
-    float3 pad1;        // 12 (총 48바이트 정렬용)
+struct SplatDeltaCustom {
+    float3 posDelta;    // 0~2
+    float4 rotDelta;    // 3~6
+    float3 scaleDelta;  // 7~9
+    float opacityDelta; // 10
+    float _pad;         // 11
 };
 
 RWStructuredBuffer<SplatDeltaCustom> _AccumulatedBuffer;
