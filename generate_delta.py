@@ -1,80 +1,133 @@
 import numpy as np
-import os
+from plyfile import PlyData
 from scipy.spatial import cKDTree
+import os
+import glob
 
-def generate_asset_to_asset_deltas(asset_dir, output_dir):
-    if not os.path.exists(output_dir): 
-        os.makedirs(output_dir)
+def find_ply_file(frame_path):
+    pattern = os.path.join(frame_path, "**", "*.ply")
+    files = glob.glob(pattern, recursive=True)
+    if files:
+        pc_files = [f for f in files if "point_cloud.ply" in f.lower()]
+        return max(pc_files if pc_files else files, key=os.path.getmtime)
+    return None
 
-    def load_bytes_safely(f_num, path):
-        prefix = f"4DGS-dynerf_coffee_martini-{f_num}-point_cloud"
+def load_unity_asset_force(f_num, asset_dir):
+    """파일 크기 불일치 무시하고 데이터 로드"""
+    prefix = f"4DGS-dynerf_coffee_martini-{f_num}-point_cloud"
+    
+    paths = {
+        'ids': os.path.join(asset_dir, f"{prefix}_ids.bytes"),
+        'pos': os.path.join(asset_dir, f"{prefix}_pos.bytes"),
+        'oth': os.path.join(asset_dir, f"{prefix}_oth.bytes"),
+        'col': os.path.join(asset_dir, f"{prefix}_col.bytes")
+    }
+    for p in paths.values():
+        if not os.path.exists(p): return None
+
+    ids_raw = np.fromfile(paths['ids'], dtype=np.int32)
+    pos_raw = np.fromfile(paths['pos'], dtype=np.float32)
+    oth_raw = np.fromfile(paths['oth'], dtype=np.float32)
+    col_raw = np.fromfile(paths['col'], dtype=np.uint8)
+    
+    n_ids = len(ids_raw)
+    n_pos = len(pos_raw) // 3
+    n_oth = len(oth_raw) // 4
+    n_col = len(col_raw) // 16 
+    n = min(n_ids, n_pos, n_oth, n_col)
+
+    pos = pos_raw[:n*3].reshape(n, 3)
+    rot = oth_raw[:n*4].reshape(n, 4)
+    bytes_per_col = len(col_raw) // n_ids if n_ids > 0 else 16
+    opac = col_raw[np.arange(n) * bytes_per_col + 3].astype(np.float32) / 255.0
+
+    return pos, rot, opac, n
+
+def generate_incremental_delta(asset_dir, frames_root, output_dir):
+    if not os.path.exists(output_dir): os.makedirs(output_dir)
+
+    print("Step 1: 기준 데이터(0001) 준비 중...")
+    base_unity = load_unity_asset_force("0001", asset_dir)
+    b_ply_path = find_ply_file(os.path.join(frames_root, "0001"))
+    
+    if not base_unity or not b_ply_path: return
+
+    b_u_pos, b_u_rot, b_u_opac, n_base = base_unity
+    
+    # 0001의 ID 매핑 (유니티 슬롯 -> Vertex ID)
+    ply_b = PlyData.read(b_ply_path)['vertex']
+    b_p_pos = np.stack([ply_b['x'], ply_b['y'], ply_b['z']], axis=1).astype(np.float32)
+    b_p_ids = ply_b['vertex_id'].astype(np.int32)
+
+    tree_b = cKDTree(b_p_pos)
+    _, indices_b = tree_b.query(b_u_pos, k=1)
+    base_unity_vids = b_p_ids[indices_b]
+
+    # [핵심] 이전 프레임의 데이터를 저장할 변수 초기화 (처음엔 0001 데이터)
+    # {Vertex_ID : (Pos, Rot, Opac)}
+    prev_map = {vid: (b_u_pos[i], b_u_rot[i], b_u_opac[i]) for i, vid in enumerate(base_unity_vids)}
+
+    # 프레임 순회
+    frame_folders = sorted([d for d in os.listdir(frames_root) if d.isdigit() and int(d) > 1])
+    
+    for f_folder in frame_folders:
+        f_num = f"{int(f_folder):04d}"
         
-        # 파일 존재 확인
-        pos_p = os.path.join(path, f"{prefix}_pos.bytes")
-        if not os.path.exists(pos_p): return None
-
-        # 1. Position 로드 (12바이트씩 끊어서 읽기)
-        # 파일 전체 크기를 가우시안 개수 n으로 자동 계산
-        pos_raw = np.fromfile(pos_p, dtype=np.float32)
-        n = len(pos_raw) // 3
-        pos = pos_raw[:n*3].reshape(n, 3)
-
-        # 2. Rotation 로드 (float32 * 4 = 16바이트 기준)
-        oth_raw = np.fromfile(os.path.join(path, f"{prefix}_oth.bytes"), dtype=np.float32)
-        # n개보다 데이터가 많으면 자르고, 부족하면 부족한 대로 n에 맞춰 재정의
-        n_oth = len(oth_raw) // 4
-        n_final = min(n, n_oth)
-        rot = oth_raw[:n_final*4].reshape(n_final, 4)
-
-        # 3. Opacity 로드 (수동 인덱싱으로 reshape 에러 원천 차단)
-        col_raw = np.fromfile(os.path.join(path, f"{prefix}_col.bytes"), dtype=np.uint8)
-        bytes_per_splat = len(col_raw) // n if n > 0 else 0
+        curr_unity = load_unity_asset_force(f_num, asset_dir)
+        curr_ply_path = find_ply_file(os.path.join(frames_root, f_folder))
         
-        if bytes_per_splat >= 4:
-            indices = np.arange(n_final) * bytes_per_splat + 3
-            opac = col_raw[indices].astype(np.float32) / 255.0
-        else:
-            opac = np.zeros(n_final, dtype=np.float32)
+        if not curr_unity or not curr_ply_path: continue
 
-        return pos[:n_final], rot, opac, n_final
+        c_u_pos, c_u_rot, c_u_opac, _ = curr_unity
+        ply_c = PlyData.read(curr_ply_path)['vertex']
+        c_p_pos = np.stack([ply_c['x'], ply_c['y'], ply_c['z']], axis=1).astype(np.float32)
+        c_p_ids = ply_c['vertex_id'].astype(np.int32)
 
-    print("기준 에셋(0001) 로드 중...")
-    base_data = load_bytes_safely("0001", asset_dir)
-    if not base_data: return
-    b_pos, b_rot, b_opac, n_base = base_data
+        # 현재 프레임 ID 매핑
+        tree_c = cKDTree(c_p_pos)
+        _, indices_c = tree_c.query(c_u_pos, k=1)
+        c_unity_vids = c_p_ids[indices_c]
 
-    # 공간 대조를 위한 KD-Tree 구축 (기준 0001 에셋)
-    print("공간 대조용 트리 생성 중 (0001 에셋 기준)...")
-    base_tree = cKDTree(b_pos)
+        # 현재 데이터를 맵으로 변환
+        curr_map = {vid: (c_u_pos[i], c_u_rot[i], c_u_opac[i]) for i, vid in enumerate(c_unity_vids)}
 
-    for f_idx in range(2, 301):
-        f_num = f"{f_idx:04d}"
-        target_data = load_bytes_safely(f_num, asset_dir)
-        if not target_data: continue
-
-        t_pos, t_rot, t_opac, n_target = target_data
-        print(f"프레임 {f_num} 직접 대조 중 (알갱이 수: {n_target})...")
-
-        # [핵심 로직] .asset 직접 비교 (Nearest Neighbor)
-        # 0001 에셋의 각 슬롯에 채울 데이터를 현재 에셋에서 가장 가까운 좌표를 가진 놈으로 찾아옴
-        _, idx_in_target = cKDTree(t_pos).query(b_pos, k=1)
-
-        # 유니티 48바이트 델타 버퍼 (0001 에셋 크기 고정)
-        # [0:3]pos, [3:7]rot, [7:10]scale, [10]opac, [11]pad
         delta_buffer = np.zeros((n_base, 12), dtype=np.float32)
+        
+        for i in range(n_base):
+            vid = base_unity_vids[i]
+            
+            # 현재 프레임과 이전 프레임 모두에 해당 ID가 있어야 델타 계산 가능
+            if vid in curr_map and vid in prev_map:
+                curr_vals = curr_map[vid]
+                prev_vals = prev_map[vid]
+                
+                # [누적 델타] 현재 값 - 이전 값 (Previous)
+                diff_pos = curr_vals[0] - prev_vals[0]
+                diff_rot = curr_vals[1] - prev_vals[1]
+                diff_opac = curr_vals[2] - prev_vals[2]
 
-        # 0001 에셋 순서(b_pos)에 맞춰 현재 에셋(t_pos[idx_in_target])의 수치 차이만 계산
-        delta_buffer[:, 0:3] = t_pos[idx_in_target] - b_pos
-        delta_buffer[:, 3:7] = t_rot[idx_in_target] - b_rot
-        delta_buffer[:, 10] = t_opac[idx_in_target] - b_opac
+                # ==========================================
+                # [좌표계 보정] Z축 반전 (Incremental)
+                # ==========================================
+                diff_pos[2] *= -1 
+                # diff_pos[0] *= -1 # 필요시 X축 반전
 
-        output_path = os.path.join(output_dir, f"frame_{f_num}.delta")
-        delta_buffer.tofile(output_path)
+                delta_buffer[i, 0:3] = diff_pos
+                delta_buffer[i, 3:7] = diff_rot
+                delta_buffer[i, 10] = diff_opac
 
-    print("\n[성공] .asset끼리 공간 매칭을 통해 직접 비교를 마쳤습니다.")
+        # 다음 루프를 위해 현재 데이터를 '이전 데이터'로 업데이트
+        prev_map = curr_map
+
+        output_name = f"frame_{f_num}.delta"
+        delta_buffer.tofile(os.path.join(output_dir, output_name))
+        print(f"누적 프레임 {f_num} 생성 완료: {os.path.basename(curr_ply_path)}")
+
+    print("\n[완료] 누적 방식(Incremental) 델타 생성 완료.")
 
 # 실행
-generate_asset_to_asset_deltas(
-    asset_dir='C:/Users/jeong/GS_Project/projects/GaussianExample/Assets/GaussianAssets', 
+generate_incremental_delta(
+    asset_dir='C:/Users/jeong/GS_Project/projects/GaussianExample/Assets/GaussianAssets',
+    frames_root='C:/4DGS/dynerf_coffee_martini',
     output_dir='C:/Users/jeong/GS_Project/projects/GaussianExample/Assets/DeltaOutput'
 )
