@@ -635,7 +635,6 @@ namespace GaussianSplatting.Runtime
                 return;
 
             var tr = transform;
-            // GaussianSplatRenderer.cs 내부 CalcViewData 함수
             var kernelView = (int)KernelIndices.CalcViewData;
 
             Matrix4x4 matView = cam.worldToCameraMatrix;
@@ -659,12 +658,26 @@ namespace GaussianSplatting.Runtime
             cmb.SetComputeFloatParam(m_CSSplatUtilities, Props.SplatOpacityScale, m_OpacityScale);
             cmb.SetComputeIntParam(m_CSSplatUtilities, Props.SHOrder, m_SHOrder);
             cmb.SetComputeIntParam(m_CSSplatUtilities, Props.SHOnly, m_SHOnly ? 1 : 0);
-            // [필수 추가] 셰이더가 정렬 키를 읽을 수 있게 연결해줘야 합니다.
-            cmb.SetComputeBufferParam(m_CSSplatUtilities, kernelView, "_AccumulatedBuffer", m_GpuSortKeys); 
-            cmb.SetComputeBufferParam(m_CSSplatUtilities, kernelView, "_AccumulatedBuffer", m_GpuAccumulatedDeltaBuffer);
+
+            // =========================================================================
+            // [수정된 부분] 이름을 정확하게 나눠서 연결합니다.
+            // =========================================================================
+            
+            // 1. 정렬 키 버퍼 연결 (이름을 "_SplatSortKeys"로 수정)
+            if (m_GpuSortKeys != null)
+            {
+                cmb.SetComputeBufferParam(m_CSSplatUtilities, kernelView, "_SplatSortKeys", m_GpuSortKeys);
+            }
+
+            // 2. 델타 누적 버퍼 연결 (이름은 "_AccumulatedBuffer" 유지)
+            if (m_GpuAccumulatedDeltaBuffer != null)
+            {
+                cmb.SetComputeBufferParam(m_CSSplatUtilities, kernelView, "_AccumulatedBuffer", m_GpuAccumulatedDeltaBuffer);
+            }
+            // =========================================================================
 
             m_CSSplatUtilities.GetKernelThreadGroupSizes((int)KernelIndices.CalcViewData, out uint gsX, out _, out _);
-            cmb.DispatchCompute(m_CSSplatUtilities, (int)KernelIndices.CalcViewData, (m_GpuView.count + (int)gsX - 1)/(int)gsX, 1, 1);
+            cmb.DispatchCompute(m_CSSplatUtilities, (int)KernelIndices.CalcViewData, (m_GpuView.count + (int)gsX - 1) / (int)gsX, 1, 1);
         }
 
         internal void SortPoints(CommandBuffer cmd, Camera cam, Matrix4x4 matrix)

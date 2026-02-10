@@ -45,9 +45,9 @@ public class SplatBatchCreator : EditorWindow
         SerializedProperty inputProp = so.FindProperty("m_InputPLY") ?? so.FindProperty("m_InputFile") ?? so.FindProperty("m_InputPath");
         if (inputProp != null) inputProp.stringValue = plyPath;
 
-        // 2. 前龙 持扁: 0 (Very High)
+        // 2. 前龙 持扁: 0 (Medium)
         SerializedProperty qualityProp = so.FindProperty("m_Quality");
-        if (qualityProp != null) qualityProp.intValue = 0;
+        if (qualityProp != null) qualityProp.intValue = 2;
 
         so.ApplyModifiedProperties();
 

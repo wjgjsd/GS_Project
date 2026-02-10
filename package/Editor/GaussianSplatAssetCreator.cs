@@ -282,35 +282,6 @@ namespace GaussianSplatting.Editor
             ReorderMorton(inputSplats, boundsMin, boundsMax);
             string baseName = Path.GetFileNameWithoutExtension(FilePickerControl.PathToDisplayString(m_InputFile));
 
-            // --- 여기서부터 [ID 추출 로직] 추가 ---
-            // --- [수정된 ID 추출 및 정렬 로직] ---
-            string pathIds = $"{m_OutputFolder}/{baseName}_ids.bytes";
-            int idCount = inputSplats.Length;
-
-            // 데이터 크기를 8의 배수로 맞춥니다 (에러 방지 핵심)
-            int dataLen = idCount * 4; // int는 4바이트
-            int paddedLen = ((dataLen + 7) / 8) * 8; 
-
-            NativeArray<byte> idDataPadded = new NativeArray<byte>(paddedLen, Allocator.TempJob);
-            try {
-                // 실제 ID 데이터 복사
-                unsafe {
-                    int* srcPtr = (int*)idDataPadded.GetUnsafePtr();
-                    for (int i = 0; i < idCount; i++) {
-                        srcPtr[i] = inputSplats[i].vertexId;
-                    }
-                }
-
-                // 파일 저장
-                using (var fs = new FileStream(pathIds, FileMode.Create, FileAccess.Write)) {
-                    fs.Write(idDataPadded);
-                }
-            }
-            finally {
-                idDataPadded.Dispose();
-            }
-            // --- 수정 완료 ---
-
             // cluster SHs
             NativeArray<int> splatSHIndices = default;
             NativeArray<GaussianSplatAsset.SHTableItemFloat16> clusteredSHs = default;
@@ -331,6 +302,7 @@ namespace GaussianSplatting.Editor
             string pathOther = $"{m_OutputFolder}/{baseName}_oth.bytes";
             string pathCol = $"{m_OutputFolder}/{baseName}_col.bytes";
             string pathSh = $"{m_OutputFolder}/{baseName}_shs.bytes";
+            string pathIds = $"{m_OutputFolder}/{baseName}_ids.bytes"; // ID 파일 경로
 
             // if we are using full lossless (FP32) data, then do not use any chunking, and keep data as-is
             bool useChunks = isUsingChunks;
@@ -340,6 +312,10 @@ namespace GaussianSplatting.Editor
             CreateOtherData(inputSplats, pathOther, ref dataHash, splatSHIndices);
             CreateColorData(inputSplats, pathCol, ref dataHash);
             CreateSHData(inputSplats, pathSh, ref dataHash, clusteredSHs);
+            
+            // [주인님, 이곳에서 ID 데이터를 생성합니다]
+            CreateIdData(inputSplats, pathIds, ref dataHash);
+
             asset.SetDataHash(dataHash);
 
             splatSHIndices.Dispose();
@@ -350,13 +326,15 @@ namespace GaussianSplatting.Editor
             AssetDatabase.Refresh(ImportAssetOptions.ForceUncompressedImport);
 
             EditorUtility.DisplayProgressBar(kProgressTitle, "Setup data onto asset", 0.95f);
+            
+            // [주의] GaussianSplatAsset.cs 파일에도 SetAssetFiles 메서드 인자가 추가되어 있어야 에러가 안 납니다!
             asset.SetAssetFiles(
                 useChunks ? AssetDatabase.LoadAssetAtPath<TextAsset>(pathChunk) : null,
                 AssetDatabase.LoadAssetAtPath<TextAsset>(pathPos),
                 AssetDatabase.LoadAssetAtPath<TextAsset>(pathOther),
                 AssetDatabase.LoadAssetAtPath<TextAsset>(pathCol),
                 AssetDatabase.LoadAssetAtPath<TextAsset>(pathSh),
-                AssetDatabase.LoadAssetAtPath<TextAsset>(pathIds) // 6번째 인자로 ID 파일 추가
+                AssetDatabase.LoadAssetAtPath<TextAsset>(pathIds) // ID 파일 전달
                 );
 
             var assetPath = $"{m_OutputFolder}/{baseName}.asset";
@@ -367,6 +345,45 @@ namespace GaussianSplatting.Editor
             EditorUtility.ClearProgressBar();
 
             Selection.activeObject = savedAsset;
+        }
+
+        // [주인님을 위한 도구] ID 추출용 Burst Job
+        [BurstCompile]
+        struct CreateIdDataJob : IJobParallelFor
+        {
+            [ReadOnly] public NativeArray<InputSplatData> m_Input;
+            [NativeDisableParallelForRestriction] public NativeArray<byte> m_Output;
+
+            public unsafe void Execute(int index)
+            {
+                // int (4바이트) 포인터로 접근하여 값을 씁니다.
+                int* outputPtr = (int*)((byte*)m_Output.GetUnsafePtr() + index * sizeof(int));
+                *outputPtr = m_Input[index].vertexId;
+            }
+        }
+
+        // [주인님을 위한 도구] ID 파일 생성 함수
+        void CreateIdData(NativeArray<InputSplatData> inputSplats, string filePath, ref Hash128 dataHash)
+        {
+            int count = inputSplats.Length;
+            int dataLen = count * 4; // int = 4 bytes
+            dataLen = NextMultipleOf(dataLen, 8); // 8바이트 정렬 (안전장치)
+            
+            NativeArray<byte> data = new(dataLen, Allocator.TempJob);
+
+            CreateIdDataJob job = new CreateIdDataJob
+            {
+                m_Input = inputSplats,
+                m_Output = data
+            };
+            job.Schedule(count, 8192).Complete();
+
+            dataHash.Append(data);
+
+            using var fs = new FileStream(filePath, FileMode.Create, FileAccess.Write);
+            fs.Write(data);
+
+            data.Dispose();
         }
 
         NativeArray<InputSplatData> LoadInputSplatFile(string filePath)

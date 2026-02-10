@@ -17,8 +17,12 @@
 /obj/*
 *.npz
 
+/projects/**/Assets/GaussianAsset/*
+/projects/**/Assets/GaussianAsset.meta
 /projects/**/Assets/GaussianAssets/*
 /projects/**/Assets/GaussianAssets.meta
+/projects/**/Assets/GaussianAssets_saving/*
+/projects/**/Assets/GaussianAssets_saving.meta
 /projects/**/Assets/Models~/*
 /projects/**/Assets/Deltas/*
 /projects/**/Assets/Deltas.meta

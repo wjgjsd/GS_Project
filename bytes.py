@@ -1,7 +1,7 @@
 import numpy as np
 
-pos_file = 'C:\\Users\\jeong\\GS_Project\\projects\\GaussianExample\\Assets\\GaussianAssets\\4DGS-dynerf_coffee_martini-0001-point_cloud_pos.bytes'
-ids_file = 'C:\\Users\\jeong\\GS_Project\\projects\\GaussianExample\\Assets\\GaussianAssets\\4DGS-dynerf_coffee_martini-0001-point_cloud_ids.bytes'
+pos_file = 'C:\\Users\\jeong\\GS_Project\\projects\\GaussianExample\\Assets\\GaussianAsset\\0002-point_cloud-iteration_161-point_cloud_pos.bytes'
+ids_file = 'C:\\Users\\jeong\\GS_Project\\projects\\GaussianExample\\Assets\\GaussianAsset\\0002-point_cloud-iteration_161-point_cloud_ids.bytes'
 
 # Check POS file
 try:
