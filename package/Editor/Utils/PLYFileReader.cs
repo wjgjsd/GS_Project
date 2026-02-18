@@ -44,17 +44,17 @@ namespace GaussianSplatting.Editor.Utils
                     vertexCount = int.Parse(tokens[2]);
                 if (tokens.Length == 3 && tokens[0] == "property")
                 {
-                    // 수정 포인트 1: QUEEN의 'int' 타입을 처리할 수 있도록 확장
-                    ElementType type = tokens[1] switch
+                    ElementType type = ElementType.None;
+                    if (tokens[1] == "float") type = ElementType.Float;
+                    else if (tokens[1] == "double") type = ElementType.Double;
+                    else if (tokens[1] == "uchar") type = ElementType.UChar;
+                    else if (tokens[1] == "int") type = ElementType.Int;
+                    
+                    if (type != ElementType.None)
                     {
-                        "float" => ElementType.Float,
-                        "double" => ElementType.Double,
-                        "uchar" => ElementType.UChar,
-                        "int" => ElementType.Int, // QUEEN의 vertex_id 대응
-                        _ => ElementType.None
-                    };
-                    vertexStride += TypeToSize(type);
-                    attrs.Add((tokens[2], type));
+                        vertexStride += TypeToSize(type);
+                        attrs.Add((tokens[2], type));
+                    }
                 }
             }
 
@@ -81,20 +81,19 @@ namespace GaussianSplatting.Editor.Utils
             Float,
             Double,
             UChar,
-            Int // 수정 포인트 2: Int 추가
+            Int
         }
 
         public static int TypeToSize(ElementType t)
         {
-            return t switch
+            switch (t)
             {
-                ElementType.None => 0,
-                ElementType.Float => 4,
-                ElementType.Double => 8,
-                ElementType.UChar => 1,
-                ElementType.Int => 4, // 수정 포인트 3: int 사이즈 4바이트 지정
-                _ => throw new ArgumentOutOfRangeException(nameof(t), t, null)
-            };
+                case ElementType.Float: return 4;
+                case ElementType.Double: return 8;
+                case ElementType.UChar: return 1;
+                case ElementType.Int: return 4;
+                default: return 0;
+            }
         }
 
         static string ReadLine(FileStream fs)

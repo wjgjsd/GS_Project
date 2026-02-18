@@ -616,10 +616,10 @@ SplatData LoadSplatData(uint idx)
 
     if (_UseDeltaStreaming > 0) {
         SplatDeltaData d = _SplatDeltaBuffer[idx];
-        s.pos += d.posDelta*0.001f;          // 위치(이동) 반영;
-        s.rot = normalize(s.rot + d.rotDelta * 0.1f);
-        s.scale += d.scaleDelta*0.00001f;             // 스케일(변형) 반영
-        s.opacity = saturate(s.opacity + d.opacityDelta * 0.001f);
+        s.pos += d.posDelta;          // 위치(이동) 반영
+        s.rot = normalize(s.rot + d.rotDelta); // 회전(쿼터니언) 반영
+        s.scale += d.scaleDelta;      // 스케일(변형) 반영
+        s.opacity = saturate(s.opacity + d.opacityDelta); // 투명도 반영
     }
 
     return s;

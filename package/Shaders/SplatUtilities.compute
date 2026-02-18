@@ -89,7 +89,7 @@ void CSCalcDistances (uint3 id : SV_DispatchThreadID)
     uint origIdx = _SplatSortKeys[idx];
 
     float3 pos = LoadSplatPos(origIdx);
-    pos += _AccumulatedBuffer[origIdx].posDelta* 0.001f; // 이 줄 추가!
+    pos += _AccumulatedBuffer[origIdx].posDelta;
     pos = mul(_MatrixMV, float4(pos.xyz, 1)).xyz;
     
 
@@ -210,10 +210,16 @@ void CSCalcViewData (uint3 id : SV_DispatchThreadID)
     // 1. [아이디 찾기] 현재 순서(idx)가 원래 몇 번 가우시안인지 조회
     uint oIdx = _SplatSortKeys[idx]; 
 
-    // 2. [데이터 로드] 반드시 oIdx를 써서 원본 데이터와 델타를 가져옴
+    // 2. [데이터 로드] 
+    // 정렬된 인덱스(oIdx)가 아닌, 스레드 인덱스(idx)를 사용해야 합니다.
+    // Vertex Shader가 _OrderBuffer를 통해 원본 ID를 찾아 _SplatViewData[ID]를 읽기 때문입니다.
+    // 즉, _SplatViewData는 정렬되지 않은 원본 순서여야 합니다.
     SplatData splat = LoadSplatData(idx);
-    // C#에서 설정한 이름(_AccumulatedBuffer)으로 델타 더하기
-    splat.pos += _AccumulatedBuffer[oIdx].posDelta* 0.001f; 
+    
+    // 3. [뷰 데이터 계산]
+    // 더 이상 수동으로 델타를 더하지 않음 (이중 적용 방지)
+    
+    // 4. [Culling/Sorting 로직 수행]
 
     SplatViewData view = (SplatViewData)0;
     
@@ -795,5 +801,7 @@ void CSApplyIncrementalDelta (uint3 id : SV_DispatchThreadID)
     if (id.x >= _SplatCountDelta) return;
     // 파이썬에서 정렬해서 보냈으므로 그대로 복사
     _AccumulatedBuffer[id.x].posDelta = _IncomingBuffer[id.x].posDelta;
-    _AccumulatedBuffer[id.x].rotDelta = _IncomingBuffer[id.x].rotDelta; // (쿼터니언 누적은 주의가 필요하지만 일단 테스트)
+    _AccumulatedBuffer[id.x].rotDelta = _IncomingBuffer[id.x].rotDelta; 
+    _AccumulatedBuffer[id.x].scaleDelta = _IncomingBuffer[id.x].scaleDelta;
+    _AccumulatedBuffer[id.x].opacityDelta = _IncomingBuffer[id.x].opacityDelta;
 }

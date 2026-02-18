@@ -133,6 +133,16 @@ namespace GaussianSplatting.Editor.Utils
             
             // 실제 데이터 복사 (Burst 가속)
             ReorderPLYData(count, (byte*)input.GetUnsafeReadOnlyPtr(), stride, (byte*)dst.GetUnsafePtr(), UnsafeUtility.SizeOf<InputSplatData>(), (int*)srcOffsets.GetUnsafeReadOnlyPtr());
+
+            // [추가] 만약 vertex_id가 파일에 없었다면, 순차적인 ID를 부여합니다.
+            // (속성 목록에 vertex_id가 없으면 srcOffsets에서의 해당 인덱스는 -1입니다)
+            int vertexIdAttrIdx = -1;
+            for(int k=0; k<splatAttributes.Length; k++) if(splatAttributes[k] == "vertex_id") vertexIdAttrIdx = k;
+            
+            if (vertexIdAttrIdx >= 0 && srcOffsets[vertexIdAttrIdx] < 0)
+            {
+                GenerateSequentialIDs(count, (InputSplatData*)dst.GetUnsafePtr());
+            }
             
             return dst;
         }
@@ -227,6 +237,17 @@ namespace GaussianSplatting.Editor.Utils
             LinearizeDataJob job = new LinearizeDataJob();
             job.splatData = splatData;
             job.Schedule(splatData.Length, 4096).Complete();
+        }
+
+        [BurstCompile]
+        static unsafe void GenerateSequentialIDs(int splatCount, InputSplatData* ptr)
+        {
+            // Burst 호환성을 위해 포인터로 접근하거나 Job을 쓸 수 있지만, 
+            // 여기서는 단순 포인터 루프로 처리합니다.
+            for (int i = 0; i < splatCount; i++)
+            {
+                ptr[i].vertexId = i;
+            }
         }
     }
 }

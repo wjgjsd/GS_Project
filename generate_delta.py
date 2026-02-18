@@ -1,122 +1,236 @@
 import numpy as np
 import os
+import glob
+import argparse
 
-def sanitize_data(arr):
-    """NaN이나 무한대 값을 0으로 치환하여 에러 방지"""
-    if not np.isfinite(arr).all():
-        return np.nan_to_num(arr, nan=0.0, posinf=0.0, neginf=0.0)
-    return arr
-
-def load_asset_data(f_num, asset_dir):
-    """ids.bytes를 포함하여 데이터를 안전하게 로드합니다."""
-    prefix = f"4DGS-dynerf_coffee_martini-{f_num}-point_cloud"
+def load_asset_data(f_num, asset_dir, preferred_prefix=""):
+    """Load position, rotation, scale, opacity, and IDs for a given frame."""
     
-    paths = {
-        'ids': os.path.join(asset_dir, f"{prefix}_ids.bytes"),
-        'pos': os.path.join(asset_dir, f"{prefix}_pos.bytes"),
-        'oth': os.path.join(asset_dir, f"{prefix}_oth.bytes"),
-        'col': os.path.join(asset_dir, f"{prefix}_col.bytes")
-    }
+    # Try to find files with glob
+    pos_pattern = os.path.join(asset_dir, f"{preferred_prefix}*{f_num:04d}*-point_cloud_pos.bytes")
+    ids_pattern = os.path.join(asset_dir, f"{preferred_prefix}*{f_num:04d}*-point_cloud_ids.bytes")
+    rot_pattern = os.path.join(asset_dir, f"{preferred_prefix}*{f_num:04d}*-point_cloud_rot.bytes")
+    scl_pattern = os.path.join(asset_dir, f"{preferred_prefix}*{f_num:04d}*-point_cloud_scale.bytes")
+    col_pattern = os.path.join(asset_dir, f"{preferred_prefix}*{f_num:04d}*-point_cloud_col.bytes")
     
-    # 필수 파일 확인
-    for p in paths.values():
-        if not os.path.exists(p): return None
-
-    # 1. 원본 데이터 읽기
-    ids_raw = np.fromfile(paths['ids'], dtype=np.int32)
-    pos_raw = np.fromfile(paths['pos'], dtype=np.float32)
-    oth_raw = np.fromfile(paths['oth'], dtype=np.float32)
-    col_raw = np.fromfile(paths['col'], dtype=np.uint8)
+    pos_files = glob.glob(pos_pattern)
+    ids_files = glob.glob(ids_pattern)
+    rot_files = glob.glob(rot_pattern)
+    scl_files = glob.glob(scl_pattern)
+    col_files = glob.glob(col_pattern)
     
-    # 2. 공통 개수(n) 계산 (파일 끝 패딩 무시)
-    n_ids = len(ids_raw)
-    n_pos = len(pos_raw) // 3
-    n = min(n_ids, n_pos) # ID와 좌표 개수 중 작은 쪽 기준
-
-    # 3. 데이터 자르기 및 성형
-    ids = ids_raw[:n]
+    if not pos_files or not ids_files:
+        return None
     
-    pos = pos_raw[:n*3].reshape(n, 3)
-    pos = sanitize_data(pos) # NaN 제거
+    path_pos = pos_files[0]
+    path_ids = ids_files[0]
+    path_rot = rot_files[0] if rot_files else None
+    path_scl = scl_files[0] if scl_files else None
+    path_col = col_files[0] if col_files else None
+    
+    # Extract prefix from filename
+    filename = os.path.basename(path_pos)
+    base_prefix_full = filename.replace("-point_cloud_pos.bytes", "")
+    
+    # Load IDs
+    ids = np.fromfile(path_ids, dtype=np.int32)
+    n_points = len(ids)
+    
+    # Load Position
+    size_pos = os.path.getsize(path_pos)
+    expected_size = n_points * 12  # 3 floats * 4 bytes
+    if size_pos != expected_size:
+        print(f"  [ERROR] Frame {f_num} ({base_prefix_full}): Pos file size {size_pos} != Expected {expected_size}. Corrupt!")
+        return None
+    
+    pos = np.fromfile(path_pos, dtype=np.float32).reshape(-1, 3)
+    
+    # Load Rotation (Norm8x4 or Float32x4)
+    if path_rot:
+        size_rot = os.path.getsize(path_rot)
+        if size_rot == n_points * 4:  # Norm8x4
+            rot_packed = np.fromfile(path_rot, dtype=np.uint32)
+            # Unpack (simplified, assuming XYZW order)
+            rot = np.zeros((n_points, 4), dtype=np.float32)
+            rot[:, 0] = ((rot_packed >> 0) & 0xFF) / 255.0
+            rot[:, 1] = ((rot_packed >> 8) & 0xFF) / 255.0
+            rot[:, 2] = ((rot_packed >> 16) & 0xFF) / 255.0
+            rot[:, 3] = ((rot_packed >> 24) & 0xFF) / 255.0
+            rot = rot * 2.0 - 1.0
+        else:
+            rot = np.fromfile(path_rot, dtype=np.float32).reshape(-1, 4)
+    else:
+        rot = np.zeros((n_points, 4), dtype=np.float32)
+        rot[:, 3] = 1.0  # Identity quaternion
+    
+    # Load Scale
+    if path_scl:
+        scale = np.fromfile(path_scl, dtype=np.float32).reshape(-1, 3)
+    else:
+        scale = np.ones((n_points, 3), dtype=np.float32)
+    
+    # Load Opacity
+    if path_col:
+        size_col = os.path.getsize(path_col)
+        if size_col == n_points * 4:  # Norm8x4
+            col_data = np.fromfile(path_col, dtype=np.uint8).reshape(-1, 4)
+            opac = col_data[:, 3].astype(np.float32) / 255.0
+        elif size_col == n_points * 16:  # Float32x4
+            col_data = np.fromfile(path_col, dtype=np.float32).reshape(-1, 4)
+            opac = col_data[:, 3]
+        else:
+            opac = np.ones((n_points,), dtype=np.float32)
+    else:
+        opac = np.ones((n_points,), dtype=np.float32)
+    
+    return ids, pos, rot, scale, opac, base_prefix_full
 
-    rot = oth_raw[:n*4].reshape(n, 4)
-    rot = sanitize_data(rot)
 
-    # Opacity 추출 (Stride 방식)
-    bytes_per_col = len(col_raw) // n_ids if n_ids > 0 else 16
-    opac = col_raw[np.arange(n) * bytes_per_col + 3].astype(np.float32) / 255.0
-    opac = sanitize_data(opac)
-
-    return ids, pos, rot, opac
-
-def generate_delta_by_id_lookup(asset_dir, output_dir):
-    if not os.path.exists(output_dir): os.makedirs(output_dir)
-
-    # --- Step 1: 기준 프레임(0001) 로드 ---
-    print("Step 1: 기준 프레임(0001) 로드 중...")
-    base_data = load_asset_data("0001", asset_dir)
+def process_deltas_frame_to_frame(frames, asset_dir, output_dir):
+    """
+    V27.27 - Frame-to-Frame ID Matching
+    Compare each frame with the PREVIOUS frame (not base frame)
+    Handles variable point counts by mapping deltas back to base frame size
+    """
+    ATTENUATION = 0.05
+    
+    print("Loading Base Frame (1)...")
+    base_data = load_asset_data(1, asset_dir)
     if not base_data:
-        print("에러: 0001 프레임 데이터를 찾을 수 없습니다.")
+        print("[ERROR] Cannot load base frame!")
         return
-
-    b_ids, b_pos, b_rot, b_opac = base_data
+    
+    b_ids, b_pos, b_rot, b_scale, b_opac, base_filename = base_data
     n_base = len(b_ids)
-    print(f"기준 가우시안 개수: {n_base}")
-
-    # --- Step 2: 프레임 순회 및 델타 생성 ---
-    # 2번 프레임부터 300번(예시)까지
-    for f_idx in range(2, 301): 
-        f_num = f"{f_idx:04d}"
+    
+    # Extract prefix: "4DGS-dynerf_coffee_martini-0001" -> "4DGS-dynerf_coffee_martini"
+    if "-0001" in base_filename:
+        preferred_prefix = base_filename.split("-0001")[0]
+    else:
+        preferred_prefix = ""
+    
+    print(f"Base Filename: '{base_filename}' -> Prefix: '{preferred_prefix}'")
+    print(f"Base Points: {n_base}")
+    
+    # Track previous frame for frame-to-frame comparison
+    # Start with base frame
+    prev_ids = b_ids.copy()
+    prev_pos = b_pos.copy()
+    prev_rot = b_rot.copy()
+    prev_scale = b_scale.copy()
+    prev_opac = b_opac.copy()
+    
+    os.makedirs(output_dir, exist_ok=True)
+    
+    for f_num in range(1, frames + 1):
+        print(f"Processing Frame {f_num}...")
         
-        curr_data = load_asset_data(f_num, asset_dir)
-        if not curr_data: continue
-
-        c_ids, c_pos, c_rot, c_opac = curr_data
+        # Always output base frame size
+        d_pos_base = np.zeros((n_base, 3), dtype=np.float32)
+        d_rot_base = np.zeros((n_base, 4), dtype=np.float32)
+        d_scl_base = np.zeros((n_base, 3), dtype=np.float32)
+        d_opac_base = np.zeros((n_base,), dtype=np.float32)
         
-        # [핵심] 검색 속도를 위해 Dictionary(해시맵) 생성
-        # Key: Vertex ID, Value: Index (현재 프레임에서의 몇 번째 줄인지)
-        # 이렇게 하면 ID로 즉시 위치를 찾을 수 있습니다.
-        curr_id_map = {uid: i for i, uid in enumerate(c_ids)}
-
-        # 48바이트 델타 버퍼 (0001 기준 순서 고정)
-        # [0:3]Pos, [3:7]Rot, [7:10]Scale(0), [10]Opac, [11]Pad
-        delta_buffer = np.zeros((n_base, 12), dtype=np.float32)
-        
-        match_count = 0
-        for i in range(n_base):
-            target_id = b_ids[i] # 0001 프레임 i번째 칸의 ID
+        if f_num == 1:
+            # Frame 1: Zero delta (base frame)
+            print(f"  Frame 1: Base Frame (Zero Delta)")
+        else:
+            # Load current frame
+            curr_data = load_asset_data(f_num, asset_dir, preferred_prefix=preferred_prefix)
             
-            # 현재 프레임에 그 ID가 존재하는지 확인
-            if target_id in curr_id_map:
-                c_idx = curr_id_map[target_id] # 현재 프레임에서의 인덱스
+            if not curr_data:
+                print(f"  [WARNING] Frame {f_num} missing. Using Zero Delta (frame frozen).")
+                # Don't update prev_* so next frame compares to last valid frame
+            else:
+                c_ids, c_pos, c_rot, c_scale, c_opac, _ = curr_data
+                n_curr = len(c_ids)
+                n_prev = len(prev_ids)
                 
-                # [계산] 현재 값 - 기준 값
-                diff_pos = c_pos[c_idx] - b_pos[i]
-                diff_rot = c_rot[c_idx] - b_rot[i]
-                diff_opac = c_opac[c_idx] - b_opac[i]
-
-                # ==========================================
-                # [좌표계 보정] Z축 반전 (Unity Coordinate Fix)
-                # ==========================================
-                diff_pos[2] *= -1 
-                # 필요 시: diff_pos[0] *= -1 (X축 반전)
-
-                delta_buffer[i, 0:3] = diff_pos
-                delta_buffer[i, 3:7] = diff_rot
-                delta_buffer[i, 10] = diff_opac
-                match_count += 1
+                # Calculate delta in Prev→Curr space
+                d_pos_prev = np.zeros((n_prev, 3), dtype=np.float32)
+                d_rot_prev = np.zeros((n_prev, 4), dtype=np.float32)
+                d_scl_prev = np.zeros((n_prev, 3), dtype=np.float32)
+                d_opac_prev = np.zeros((n_prev,), dtype=np.float32)
+                
+                # ID Matching between PREV and CURR
+                sorter = np.argsort(c_ids)
+                insert_indices = np.searchsorted(c_ids, prev_ids, sorter=sorter)
+                insert_indices = np.clip(insert_indices, 0, len(c_ids) -1)
+                c_indices_mapped = sorter[insert_indices]
+                matched_mask = (c_ids[c_indices_mapped] == prev_ids)
+                
+                match_count = np.sum(matched_mask)
+                match_pct = (match_count / n_prev) * 100.0
+                
+                # Calculate delta for matched IDs
+                if match_count > 0:
+                    d_pos_prev[matched_mask] = c_pos[c_indices_mapped[matched_mask]] - prev_pos[matched_mask]
+                    d_rot_prev[matched_mask] = c_rot[c_indices_mapped[matched_mask]] - prev_rot[matched_mask]
+                    d_scl_prev[matched_mask] = c_scale[c_indices_mapped[matched_mask]] - prev_scale[matched_mask]
+                    d_opac_prev[matched_mask] = c_opac[c_indices_mapped[matched_mask]] - prev_opac[matched_mask]
+                    
+                    mean_delta = np.mean(np.linalg.norm(d_pos_prev[matched_mask], axis=1))
+                    print(f"  Frame {f_num}: Prev({n_prev}) → Curr({n_curr}), ID Match {match_count}/{n_prev} ({match_pct:.1f}%), Mean Delta = {mean_delta:.4f}")
+                else:
+                    print(f"  Frame {f_num}: No ID matches!")
+                
+                # Map delta from Prev space to Base space
+                sorter_prev = np.argsort(prev_ids)
+                insert_indices_base = np.searchsorted(prev_ids, b_ids, sorter=sorter_prev)
+                insert_indices_base = np.clip(insert_indices_base, 0, len(prev_ids) - 1)
+                prev_indices_mapped = sorter_prev[insert_indices_base]
+                base_matched_mask = (prev_ids[prev_indices_mapped] == b_ids)
+                
+                # Copy deltas for matched base IDs
+                d_pos_base[base_matched_mask] = d_pos_prev[prev_indices_mapped[base_matched_mask]]
+                d_rot_base[base_matched_mask] = d_rot_prev[prev_indices_mapped[base_matched_mask]]
+                d_scl_base[base_matched_mask] = d_scl_prev[prev_indices_mapped[base_matched_mask]]
+                d_opac_base[base_matched_mask] = d_opac_prev[prev_indices_mapped[base_matched_mask]]
+                
+                # Update prev to current (for next iteration)
+                prev_ids = c_ids.copy()
+                prev_pos = c_pos.copy()
+                prev_rot = c_rot.copy()
+                prev_scale = c_scale.copy()
+                prev_opac = c_opac.copy()
         
-        # 결과 저장
-        output_path = os.path.join(output_dir, f"frame_{f_num}.delta")
-        delta_buffer.tofile(output_path)
+        # Apply attenuation and clipping
+        d_pos_base *= ATTENUATION
+        d_pos_base = np.clip(d_pos_base, -5.0, 5.0)
         
-        if f_idx % 1 == 0:
-            print(f"프레임 {f_num} 생성 완료: {match_count}/{n_base} 개 매칭됨")
+        # Quaternion flip check (simplified)
+        d_rot_base *= ATTENUATION
+        d_scl_base *= ATTENUATION
+        d_opac_base *= ATTENUATION
+        
+        # Pack into structured array (48 bytes per particle)
+        dtype_delta = np.dtype([
+            ('pos', np.float32, 3),    # 12 bytes
+            ('rot', np.float32, 4),    # 16 bytes
+            ('scale', np.float32, 3),  # 12 bytes
+            ('opac', np.float32),      # 4 bytes
+            ('pad', np.float32)        # 4 bytes
+        ])
+        
+        arr = np.zeros(n_base, dtype=dtype_delta)
+        arr['pos'] = d_pos_base
+        arr['rot'] = d_rot_base
+        arr['scale'] = d_scl_base
+        arr['opac'] = d_opac_base
+        
+        # Write to file
+        path_delta = os.path.join(output_dir, f"frame_{f_num:04d}.delta")
+        with open(path_delta, "wb") as f:
+            f.write(arr.tobytes())
+    
+    print(f"Processing Complete. {frames} frames written to {output_dir}")
 
-    print("\n[완료] ID 매칭을 통한 정밀 델타 생성이 끝났습니다.")
 
-# 실행
-generate_delta_by_id_lookup(
-    asset_dir='C:/Users/jeong/GS_Project/projects/GaussianExample/Assets/GaussianAssets',
-    output_dir='C:/Users/jeong/GS_Project/projects/GaussianExample/Assets/DeltaOutput'
-)
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--frames", type=int, default=300)
+    parser.add_argument("--asset_dir", type=str, default=".")
+    parser.add_argument("--output_dir", type=str, default="deltas")
+    args = parser.parse_args()
+    
+    process_deltas_frame_to_frame(args.frames, args.asset_dir, args.output_dir)

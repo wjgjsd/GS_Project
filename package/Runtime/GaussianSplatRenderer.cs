@@ -82,7 +82,7 @@ namespace GaussianSplatting.Runtime
             foreach (var kvp in m_Splats)
             {
                 var gs = kvp.Key;
-                if (gs == null || !gs.isActiveAndEnabled || !gs.HasValidAsset || !gs.HasValidRenderSetup)
+                if (gs == null || !gs.isActiveAndEnabled || !gs.HasValidAsset || !gs.HasValidRenderSetup || !gs.m_RenderEnabled)
                     continue;
                 m_ActiveSplats.Add((kvp.Key, kvp.Value));
             }
@@ -120,8 +120,11 @@ namespace GaussianSplatting.Runtime
 
                 // sort
                 var matrix = gs.transform.localToWorldMatrix;
-                if (gs.m_FrameCounter % gs.m_SortNthFrame == 0)
+                if (gs.m_FrameCounter % gs.m_SortNthFrame == 0 || gs.m_NeedSort)
+                {
                     gs.SortPoints(cmb, cam, matrix);
+                    gs.m_NeedSort = false;
+                }
                 ++gs.m_FrameCounter;
 
                 // cache view
@@ -226,6 +229,9 @@ namespace GaussianSplatting.Runtime
             DebugChunkBounds,
         }
         public GaussianSplatAsset m_Asset;
+        public bool m_RenderEnabled = true; // [Optimization] Control rendering without disabling component (keeps buffers alive)
+        public bool m_AutoUpdate = true; // [Optimization] If false, Update() will not call UpdateResourcesForAsset automatically.
+        internal bool m_NeedSort = false; // [Optimization] Force sort on next frame
         [System.Runtime.InteropServices.StructLayout(System.Runtime.InteropServices.LayoutKind.Explicit, Size = 48)]
         public struct SplatDeltaCustom
         {
@@ -411,7 +417,7 @@ namespace GaussianSplatting.Runtime
             var texFormat = GaussianSplatAsset.ColorFormatToGraphics(asset.colorFormat);
             var tex = new Texture2D(texWidth, texHeight, texFormat, TextureCreationFlags.DontInitializePixels | TextureCreationFlags.IgnoreMipmapLimit | TextureCreationFlags.DontUploadUponCreate) { name = "GaussianColorData" };
             tex.SetPixelData(asset.colorData.GetData<byte>(), 0);
-            tex.Apply(false, true);
+            tex.Apply(false, false); // [Fix] Keep CPU copy readable for reuse
             m_GpuColorData = tex;
             if (asset.chunkData != null && asset.chunkData.dataSize != 0)
             {
@@ -720,14 +726,182 @@ namespace GaussianSplatting.Runtime
                 m_PrevHash = curHash;
                 if (resourcesAreSetUp)
                 {
-                    DisposeResourcesForAsset();
-                    CreateResourcesForAsset();
+                    if (m_AutoUpdate)
+                    {
+                        // [OPTIMIZATION]
+                        // If the new asset fits into the existing buffers, reuse them!
+                        // This prevents expensive GraphicsBuffer allocation/deallocation every frame.
+                        if (CanReuseResources(m_Asset))
+                        {
+                            UpdateResourcesForAsset();
+                        }
+                        else
+                        {
+                            DisposeResourcesForAsset();
+                            CreateResourcesForAsset();
+                        }
+                    }
                 }
                 else
                 {
                     Debug.LogError($"{nameof(GaussianSplatRenderer)} component is not set up correctly (Resource references are missing), or platform does not support compute shaders");
                 }
             }
+        }
+
+        bool CanReuseResources(GaussianSplatAsset newAsset)
+        {
+            if (newAsset == null || !HasValidAsset) return false;
+            if (m_GpuPosData == null || m_GpuOtherData == null || m_GpuColorData == null) return false;
+
+            // Check if existing buffers are large enough
+            // Note: We check byte size capacity. 
+            // Ideally we check element count, but here we assume format is same or compatible size.
+            // Safe bet: if splat count is same or smaller, and format is identical.
+            // For streaming frame animation, usually format is identical.
+            
+            bool isFormatSame = (newAsset.posFormat == m_Asset.posFormat) &&
+                                (newAsset.scaleFormat == m_Asset.scaleFormat) &&
+                                (newAsset.colorFormat == m_Asset.colorFormat) &&
+                                (newAsset.shFormat == m_Asset.shFormat);
+                                
+            if (!isFormatSame) return false;
+
+            // Check capacity
+            // Allow reuse if new count <= current buffer capacity (in elements)
+            // m_GpuPosData is created with size = m_SplatCount * stride. 
+            // But here we need to know the *allocated* size. 
+            // GraphicsBuffer.count returns element count.
+            
+            // However, m_GpuPosData was created based on `asset.posData.dataSize / 4` (uint elements).
+            // So we compare byte sizes or element counts.
+            
+            // Simpler check: if splat count is <= m_GpuPosData.count (conceptually).
+            // Actually m_GpuPosData is raw (Strucutred/Raw), count is (size/stride).
+            // Let's rely on allocated count.
+            
+            // To be safe for now: Reuse ONLY if splat count is Identical or Smaller.
+            // And we must ensure we update m_SplatCount.
+            
+            // For now, let's implement strict check: Reuse if new asset fits in allocated buffers.
+            // We use m_GpuPosData.count as a proxy for capacity (in 4-byte units).
+            int newPosCount = (int)(newAsset.posData.dataSize / 4);
+            if (newPosCount > m_GpuPosData.count) return false;
+            
+            return true;
+        }
+
+        public void UpdateResourcesForAsset()
+        {
+            if (!HasValidAsset) return;
+
+            // [Fix] consistency with Update loop to prevent double updates
+            m_PrevAsset = m_Asset;
+            m_PrevHash = m_Asset.dataHash;
+            
+            // [Fix] Check if we can actually reuse resources!
+            if (!CanReuseResources(m_Asset))
+            {
+                 //Debug.Log($"[GaussianSplatRenderer] Buffer too small (SplatCount: {m_Asset.splatCount}), reallocating...");
+                 DisposeResourcesForAsset();
+                 CreateResourcesForAsset();
+                 return;
+            }
+
+            m_SplatCount = m_Asset.splatCount;
+            
+            // Update Data (Synchronous Upload - still heavy but avoids Allocation overhead)
+            // Note: If we really want 0ms stall, we need AsyncGPUReadback or Async Upload via CommandBuffer.
+            // But reusing buffers removes the "Dispose + New" overhead which is huge.
+            
+            var sw = System.Diagnostics.Stopwatch.StartNew();
+
+            m_GpuPosData.SetData(m_Asset.posData.GetData<uint>());
+            long tPos = sw.ElapsedMilliseconds;
+
+            m_GpuOtherData.SetData(m_Asset.otherData.GetData<uint>());
+            long tOther = sw.ElapsedMilliseconds;
+
+            m_GpuSHData.SetData(m_Asset.shData.GetData<uint>());
+            long tSH = sw.ElapsedMilliseconds;
+            
+            // Chunk data update
+            if (m_Asset.chunkData != null && m_Asset.chunkData.dataSize != 0)
+            {
+                 // Check chunk buffer size
+                 int newChunkCount = (int)(m_Asset.chunkData.dataSize / UnsafeUtility.SizeOf<GaussianSplatAsset.ChunkInfo>());
+                 if (m_GpuChunks == null || newChunkCount > m_GpuChunks.count)
+                 {
+                     // Reallocate Chunk Buffer only
+                     DisposeBuffer(ref m_GpuChunks);
+                     m_GpuChunks = new GraphicsBuffer(GraphicsBuffer.Target.Structured, newChunkCount, UnsafeUtility.SizeOf<GaussianSplatAsset.ChunkInfo>()) {name = "GaussianChunkData"};
+                 }
+                 m_GpuChunks.SetData(m_Asset.chunkData.GetData<GaussianSplatAsset.ChunkInfo>());
+                 m_GpuChunksValid = true;
+            }
+            else
+            {
+                m_GpuChunksValid = false;
+            }
+
+            long tChunks = sw.ElapsedMilliseconds;
+
+            // Texture Update
+            // Reusing Texture2D if size matches
+            if (m_GpuColorData is Texture2D tex)
+            {
+                var (newW, newH) = GaussianSplatAsset.CalcTextureSize(m_Asset.splatCount);
+                if (tex.width == newW && tex.height == newH && tex.graphicsFormat == GaussianSplatAsset.ColorFormatToGraphics(m_Asset.colorFormat))
+                {
+                    tex.SetPixelData(m_Asset.colorData.GetData<byte>(), 0);
+                    tex.Apply(false, false); // [Fix] Keep CPU copy readable for next update
+                }
+                else
+                {
+                    // Recreate texture if size mismatch
+                    DestroyImmediate(m_GpuColorData);
+                    var texFormat = GaussianSplatAsset.ColorFormatToGraphics(m_Asset.colorFormat);
+                    tex = new Texture2D(newW, newH, texFormat, TextureCreationFlags.DontInitializePixels | TextureCreationFlags.IgnoreMipmapLimit | TextureCreationFlags.DontUploadUponCreate) { name = "GaussianColorData" };
+                    tex.SetPixelData(m_Asset.colorData.GetData<byte>(), 0);
+                    tex.Apply(false, false); // [Fix] Keep CPU copy readable for next update
+                    m_GpuColorData = tex;
+                }
+            }
+            long tTex = sw.ElapsedMilliseconds;
+            
+            // Sort buffers are size-dependent.
+            // If m_SplatCount changed significantly, we might need to recreate them?
+            // InitSortBuffers(m_SplatCount) handles disposal internally. 
+            // Let's call it to be safe, or optimize it too.
+            // For now, let's just call InitSortBuffers if count grew.
+            
+            if (m_GpuSortKeys == null || m_SplatCount > m_GpuSortKeys.count)
+            {
+                InitSortBuffers(m_SplatCount);
+            }
+            else
+            {
+                // [IMPORTANT] Even if reuse buffers, we must update the sort count!
+                m_SorterArgs.count = (uint)m_SplatCount;
+                
+                // [fix] Reset keys to identity (0..N) because sorter shuffled them last frame
+                m_CSSplatUtilities.SetBuffer((int)KernelIndices.SetIndices, Props.SplatSortKeys, m_GpuSortKeys);
+                m_CSSplatUtilities.SetInt(Props.SplatCount, m_SplatCount); 
+                m_CSSplatUtilities.GetKernelThreadGroupSizes((int)KernelIndices.SetIndices, out uint gsX, out _, out _);
+                m_CSSplatUtilities.Dispatch((int)KernelIndices.SetIndices, (m_SplatCount + (int)gsX - 1)/(int)gsX, 1, 1);
+            }
+            
+            sw.Stop();
+            long dPos = tPos;
+            long dOther = tOther - tPos;
+            long dSH = tSH - tOther;
+            long dChunks = tChunks - tSH;
+            long dTex = tTex - tChunks;
+            long dSort = sw.ElapsedMilliseconds - tTex;
+
+            Debug.Log($"[Profile] Upload: Total={sw.ElapsedMilliseconds}ms | Pos={dPos} | Other={dOther} | SH={dSH} | Chunks={dChunks} | Tex={dTex} | Sort={dSort}");
+            Debug.Log($"[GaussianSplatRenderer] ♻️ Reused Buffers for frame (SplatCount: {m_SplatCount})");
+            m_NeedSort = true; // [Optimization] Force sort on next render
         }
 
         public void ActivateCamera(int index)

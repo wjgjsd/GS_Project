@@ -47,7 +47,7 @@ public class SplatBatchCreator : EditorWindow
 
         // 2. 품질 넣기: 0 (Medium)
         SerializedProperty qualityProp = so.FindProperty("m_Quality");
-        if (qualityProp != null) qualityProp.intValue = 2;
+        if (qualityProp != null) qualityProp.intValue = 0;
 
         so.ApplyModifiedProperties();
 

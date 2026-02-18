@@ -16,6 +16,8 @@
 /UserSettings/*
 /obj/*
 *.npz
+*.bytes
+*.delta
 
 /projects/**/Assets/GaussianAsset/*
 /projects/**/Assets/GaussianAsset.meta
@@ -28,9 +30,23 @@
 /projects/**/Assets/Deltas.meta
 /projects/**/Assets/Deltas_save/*
 /projects/**/Assets/Deltas_save.meta
+/projects/**/Assets/DeltaOutput/*
+/projects/**/Assets/DeltaOutput.meta
+/projects/**/Assets/StreamedAssets/deltas/*
+/projects/**/Assets/StreamedAssets/deltas.meta
+/projects/**/Assets/StreamedAssets/*
+/projects/**/Assets/StreamedAssets.meta
 /projects/**/Library/*
 /projects/**/Logs/*
 /projects/**/Temp/*
 /projects/**/UserSettings/*
 /projects/**/obj/*
 *.sln.DotSettings.user
+
+# Addressables
+*.bundle
+**/*.bundle
+
+# Addressables Config
+**/Assets/AddressableAssetsData/
+**/Assets/AddressableAssetsData.meta
