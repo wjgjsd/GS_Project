@@ -19,6 +19,12 @@
 
 /projects/**/Assets/GaussianAssets/*
 /projects/**/Assets/GaussianAssets.meta
+/projects/**/Assets/GaussianAssets_saving/*
+/projects/**/Assets/GaussianAssets_saving.meta
+/projects/**/Assets/Deltas/*
+/projects/**/Assets/Deltas.meta
+/projects/**/Assets/Deltas_save/*
+/projects/**/Assets/Deltas_save.meta
 /projects/**/Assets/Models~/*
 /projects/**/Library/*
 /projects/**/Logs/*
@@ -26,3 +32,7 @@
 /projects/**/UserSettings/*
 /projects/**/obj/*
 *.sln.DotSettings.user
+
+/projects/GaussianExample/Assets/AddressableAssetsData/*
+/projects/GaussianExample/Assets/AddressableAssetsData.meta
+/projects/GaussianExample/ServerData/StandaloneWindows64/*
