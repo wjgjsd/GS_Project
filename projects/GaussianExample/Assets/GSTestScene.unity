@@ -207,13 +207,13 @@ Transform:
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 1234264138}
   serializedVersion: 2
-  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
-  m_LocalPosition: {x: 0, y: 1, z: -10}
+  m_LocalRotation: {x: -0.019926818, y: -0, z: -0, w: 0.99980146}
+  m_LocalPosition: {x: 3.76, y: -0.019999838, z: -5.28}
   m_LocalScale: {x: 1, y: 1, z: 1}
   m_ConstrainProportionsScale: 0
   m_Children: []
   m_Father: {fileID: 0}
-  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+  m_LocalEulerAnglesHint: {x: -2.284, y: 0, z: 0}
 --- !u!1 &1589090911
 GameObject:
   m_ObjectHideFlags: 0
@@ -224,6 +224,8 @@ GameObject:
   m_Component:
   - component: {fileID: 1589090913}
   - component: {fileID: 1589090912}
+  - component: {fileID: 1589090914}
+  - component: {fileID: 1589090915}
   m_Layer: 0
   m_Name: GaussianSplat
   m_TagString: Untagged
@@ -243,7 +245,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: c12d929a7f62c48adbe9ff45c9a33ff0, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  m_Asset: {fileID: 11400000, guid: c1fa8df50d90a574a93b5dc69d00527f, type: 2}
+  m_Asset: {fileID: 11400000, guid: f437c4ac3d726174d89dbd9da721ba35, type: 2}
   m_RenderOrder: 0
   m_SplatScale: 1
   m_OpacityScale: 1
@@ -266,13 +268,50 @@ Transform:
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 1589090911}
   serializedVersion: 2
-  m_LocalRotation: {x: -0.99254614, y: 0, z: 0, w: 0.12186937}
+  m_LocalRotation: {x: 1, y: 0, z: 0, w: 0}
   m_LocalPosition: {x: 0, y: 0, z: 0}
   m_LocalScale: {x: 1, y: 1, z: -1}
   m_ConstrainProportionsScale: 0
   m_Children: []
   m_Father: {fileID: 0}
-  m_LocalEulerAnglesHint: {x: -166, y: 0, z: 0}
+  m_LocalEulerAnglesHint: {x: 180, y: 0, z: 0}
+--- !u!114 &1589090914
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1589090911}
+  m_Enabled: 0
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 3695ed0d592d628429864c7850121012, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  targetRenderer: {fileID: 1589090912}
+  targetSplatCount: 50000
+  targetFps: 30
+  duration: 10
+  posDeltaPerFrame: {x: 0, y: 0, z: 0}
+  scaleDeltaPerFrame: 0
+  colorTintPerFrame: {r: 0, g: 0, b: 0, a: 0}
+  opacityDeltaPerFrame: 0
+--- !u!114 &1589090915
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1589090911}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 2e7d7878bf07c084d86e85d40423c671, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  targetRenderer: {fileID: 1589090912}
+  deltaFolderPath: Assets/Deltas_save
+  targetFps: 30
+  loop: 0
+  globalMultiplier: 0.01
 --- !u!1 &1685392616
 GameObject:
   m_ObjectHideFlags: 0

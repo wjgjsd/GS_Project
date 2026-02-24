@@ -275,6 +275,10 @@ namespace GaussianSplatting.Runtime
         GraphicsBuffer m_GpuPosDeltaData;//변화 위치 데이터
         const int kMaxDeltaUpdates = 1000000; // 한 프레임에 최대 100만개까지 업데이트 허용 (조절 가능)
 
+        // Live Delta Buffers (Option B)
+        public GraphicsBuffer m_GpuLivePosScaleDelta;
+        public GraphicsBuffer m_GpuLiveColorOpacDelta;
+
         GpuSorting m_Sorter;
         GpuSorting.Args m_SorterArgs;
 
@@ -426,6 +430,21 @@ namespace GaussianSplatting.Runtime
 
             m_GpuDeltaIndices = new GraphicsBuffer(GraphicsBuffer.Target.Structured, kMaxDeltaUpdates, 4);
             m_GpuPosDeltaData = new GraphicsBuffer(GraphicsBuffer.Target.Structured, kMaxDeltaUpdates, 12);
+
+            m_GpuLivePosScaleDelta = new GraphicsBuffer(GraphicsBuffer.Target.Structured, splatCount, 16);
+            m_GpuLiveColorOpacDelta = new GraphicsBuffer(GraphicsBuffer.Target.Structured, splatCount, 16);
+            
+            var identity1 = new Unity.Collections.NativeArray<Vector4>(splatCount, Unity.Collections.Allocator.Temp);
+            var identity2 = new Unity.Collections.NativeArray<Vector4>(splatCount, Unity.Collections.Allocator.Temp);
+            for (int i = 0; i < splatCount; i++)
+            {
+                identity1[i] = new Vector4(0, 0, 0, 1f); // pos (0,0,0), scale multiplier 1
+                identity2[i] = new Vector4(1f, 1f, 1f, 1f); // color white, opacity multiplier 1
+            }
+            m_GpuLivePosScaleDelta.SetData(identity1);
+            m_GpuLiveColorOpacDelta.SetData(identity2);
+            identity1.Dispose();
+            identity2.Dispose();
         }
 
         void InitSortBuffers(int count)
@@ -515,6 +534,9 @@ namespace GaussianSplatting.Runtime
             UpdateCutoutsBuffer();
             cmb.SetComputeIntParam(cs, Props.SplatCutoutsCount, m_Cutouts?.Length ?? 0);
             cmb.SetComputeBufferParam(cs, kernelIndex, Props.SplatCutouts, m_GpuEditCutouts);
+
+            if (m_GpuLivePosScaleDelta != null) cmb.SetComputeBufferParam(cs, kernelIndex, "_LivePosScaleDelta", m_GpuLivePosScaleDelta);
+            if (m_GpuLiveColorOpacDelta != null) cmb.SetComputeBufferParam(cs, kernelIndex, "_LiveColorOpacDelta", m_GpuLiveColorOpacDelta);
         }
 
         internal void SetAssetDataOnMaterial(MaterialPropertyBlock mat)
@@ -530,6 +552,9 @@ namespace GaussianSplatting.Runtime
             mat.SetInteger(Props.SplatFormat, (int)format);
             mat.SetInteger(Props.SplatCount, m_SplatCount);
             mat.SetInteger(Props.SplatChunkCount, m_GpuChunksValid ? m_GpuChunks.count : 0);
+            
+            if (m_GpuLivePosScaleDelta != null) mat.SetBuffer("_LivePosScaleDelta", m_GpuLivePosScaleDelta);
+            if (m_GpuLiveColorOpacDelta != null) mat.SetBuffer("_LiveColorOpacDelta", m_GpuLiveColorOpacDelta);
         }
 
         static void DisposeBuffer(ref GraphicsBuffer buf)
@@ -585,6 +610,9 @@ namespace GaussianSplatting.Runtime
 
             DisposeBuffer(ref m_GpuDeltaIndices);
             DisposeBuffer(ref m_GpuPosDeltaData);
+            
+            DisposeBuffer(ref m_GpuLivePosScaleDelta);
+            DisposeBuffer(ref m_GpuLiveColorOpacDelta);
         }
 
         internal void CalcViewData(CommandBuffer cmb, Camera cam)

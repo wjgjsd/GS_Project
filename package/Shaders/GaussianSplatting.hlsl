@@ -316,6 +316,9 @@ SplatBufferDataType _SplatSH;
 Texture2D _SplatColor;
 uint _SplatFormat;
 
+StructuredBuffer<float4> _LivePosScaleDelta; // xyz: pos offset, w: scale mult
+StructuredBuffer<float4> _LiveColorOpacDelta; // xyz: rgb tint, w: opacity mult
+
 // Match GaussianSplatAsset.VectorFormat
 #define VECTOR_FMT_32F 0
 #define VECTOR_FMT_16 1
@@ -603,6 +606,14 @@ SplatData LoadSplatData(uint idx)
     }
     s.opacity   = col.a;
     s.sh.col    = col.rgb;
+
+    // --- APPLY LIVE DELTAS ---
+    float4 posScaleDelta = _LivePosScaleDelta[idx];
+    float4 colorOpacDelta = _LiveColorOpacDelta[idx];
+    s.pos += posScaleDelta.xyz;
+    s.scale *= posScaleDelta.w;
+    s.sh.col *= colorOpacDelta.rgb;
+    s.opacity *= colorOpacDelta.w;
 
     return s;
 }
